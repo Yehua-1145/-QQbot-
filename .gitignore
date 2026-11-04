@@ -1,0 +1,28 @@
+# ==== 敏感文件（绝对不要提交）====
+config.json
+config.json.tmp
+webui_token.txt
+feedback.jsonl
+sent_albums.json
+perms.json
+*.log
+*.pid
+
+# ==== 个人素材（你的头像/动图，别人不需要）====
+aibot/assets/bili_avatar.png
+aibot/assets/welcome.gif
+aibot/assets/welcome.webp
+
+# ==== 运行时产物 ====
+__pycache__/
+*.pyc
+*.apk.idsig
+PhoneAgent.apk
+
+# ==== 手机侧脚本里可能含本机路径/账号 ====
+aux_phone/scripts/run_qq_root_mi6.sh
+/data/local/tmp/
+
+# ==== 本地详细文档（含成人图源细节，不进公开仓库）====
+README.local.md
+docs/*.local.md
