@@ -15,7 +15,7 @@ QQ 消息 → NapCat（QQ 协议端）→ 你的大模型 → 回复
 | 方式 | 地址 | 说明 |
 |---|---|---|
 | **蓝奏云**（国内推荐） | <https://wwbxc.lanzoub.com/b011mly7ud> | 密码：**byc6** |
-| **GitHub Release** | <https://github.com/Yehua-1145/-QQbot-/releases/latest> | 国内需代理 |
+| **GitHub Release** | <https://github.com/Yehua-1145/-QQbot-/releases/latest> | 需要魔法 |
 
 下载后解压，进 `Windows一键部署` 目录，双击 `BotagentDeploy.exe` 即可。
 
