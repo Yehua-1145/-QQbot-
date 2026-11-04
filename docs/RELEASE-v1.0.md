@@ -5,6 +5,22 @@
 
 ---
 
+## 📥 下载
+
+| 方式 | 地址 | 说明 |
+|---|---|---|
+| **蓝奏云**（国内推荐） | <https://wwbxc.lanzoub.com/b011mly7ud> | 密码：**byc6** |
+| **GitHub Release** | <https://github.com/Yehua-1145/-QQbot-/releases/latest> | 国内需代理 |
+
+下载后解压，进 `Windows一键部署` 目录，双击 `BotagentDeploy.exe` 即可。
+
+```text
+Botagent-v1.0.zip          16.83 MB
+SHA256  5E28A5F4A7C674A848B68170C9A276223001E30DCADFEAA0608A7C8F83A74089
+```
+
+---
+
 ## 亮点
 
 - **免 root**：全部跑在 Termux + proot Ubuntu 里，不需要刷机不需要权限
