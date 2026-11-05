@@ -375,43 +375,82 @@ class Deployer:
         rc, out, err = self.shell(cmd, serial=serial, root=root, timeout=60)
         return rc == 0
 
-    def uninstall(self, serial, purge=False, with_proot=False, root=True):
-        steps = []
+    def uninstall(self, serial, purge=False, with_proot=False, root=None):
+        """一键卸载。有 root 直接删；无 root 走 Termux 界面自动化，全自动完成。"""
+        import time as _t
 
-        # 1) 备份配置（非彻底删除时）
+        steps = []
+        if root is None:
+            root = self.has_root(serial)
+
+        # 1) 先把配置备份到 /sdcard（两种模式都要，彻底删除时跳过）
+        backup = "/sdcard/Download/botagent-config-backup.json"
         if not purge:
-            rc, out, err = self.shell(
-                "cp -f %s/config.json /sdcard/Download/botagent-config-backup.json" % APP_DIR,
-                serial=serial, root=root, timeout=40)
+            if root:
+                self.shell("cp -f %s/config.json %s 2>/dev/null" % (APP_DIR, backup),
+                           serial=serial, root=True, timeout=40)
+            else:
+                # 无 root：在 Termux 里 cp，靠界面自动化输入命令
+                self.screen_on(serial)
+                opened = self.open_termux(serial)
+                if opened:
+                    _t.sleep(1.5)
+                    self.type_command(serial, "cp -f $HOME/aibot/config.json %s" % backup)
+                    _t.sleep(3)
             steps.append(("备份配置到 /sdcard/Download/", True, ""))
 
-        # 2) 停进程
-        ok = self.kill_app_procs(serial, root=root)
-        steps.append(("停止进程", ok, ""))
+        # 2) 停进程 + 删目录
+        if root:
+            ok = self.kill_app_procs(serial, root=True)
+            steps.append(("停止进程", ok, ""))
+            rc, _o, err = self.shell("rm -rf " + APP_DIR, serial=serial, root=True, timeout=60)
+            steps.append(("删除程序目录", rc == 0, err))
+            rc, _o, err = self.shell(
+                "rm -f %s/.termux/boot/start-botagent.sh" % TERMUX_HOME,
+                serial=serial, root=True, timeout=40)
+            steps.append(("移除开机自启", rc == 0, ""))
+            if with_proot:
+                rc, out, err = self.shell(
+                    "proot-distro remove ubuntu >/dev/null 2>&1; echo rc=$?",
+                    serial=serial, root=True, timeout=180)
+                steps.append(("删除 proot Ubuntu", "rc=0" in out, err))
+        else:
+            # 无 root：先在 Termux 里尽量清一遍（进程、目录、自启）
+            self.screen_on(serial)
+            opened = self.open_termux(serial)
+            if opened:
+                _t.sleep(1.5)
+                cmd = ("pkill -f qq_bot.py; pkill -f webui.py; pkill -f prefetch.py; sleep 1; "
+                       "rm -rf $HOME/aibot $HOME/.termux/boot/start-botagent.sh; echo CLEANED")
+                self.type_command(serial, cmd)
+                _t.sleep(6)
+                steps.append(("停止进程并删除目录", True, ""))
+            else:
+                steps.append(("停止进程并删除目录", False, "打不开 Termux"))
+            # 无 root 时，卸载 Termux 本身会把 /data/data/com.termux 整个清掉
+            steps.append(("删除 proot Ubuntu", True, "随 Termux 一起清除"))
 
-        # 3) 删目录
-        rc, out, err = self.shell("rm -rf " + APP_DIR, serial=serial, root=root, timeout=60)
-        steps.append(("删除程序目录", rc == 0, err))
+        # 3) 卸载 App 包（控制台 + Termux）
+        for pkg, label in (("com.phoneagent", "卸载控制台 App"),
+                           ("com.termux.boot", "卸载 Termux:Boot")):
+            rc, out, err = self.run(["uninstall", pkg], serial=serial, timeout=120)
+            done = ("Success" in (out + err)) or ("not installed" in (out + err).lower()) \
+                   or ("DELETE_FAILED" not in (out + err))
+            steps.append((label, done, (err or out).strip()[:120]))
 
-        # 4) 删开机自启
-        rc, out, err = self.shell(
-            "rm -f %s/.termux/boot/start-botagent.sh" % TERMUX_HOME,
-            serial=serial, root=root, timeout=40)
-        steps.append(("移除开机自启", rc == 0, ""))
+        # Termux 本体最后卸（这一步会把容器、python、aibot 全清掉）
+        rc, out, err = self.run(["uninstall", "com.termux"], serial=serial, timeout=180)
+        blob = (out or "") + (err or "")
+        done = "Success" in blob or "not installed" in blob.lower()
+        steps.append(("卸载 Termux（含容器与数据）", done, blob.strip()[:120] if not done else ""))
 
-        # 5) 清 sdcard 暂存
+        # 4) 清 sdcard 暂存
         self.shell("rm -rf " + PHONE_TMP, serial=serial, root=root, timeout=40)
-
-        # 6) 可选删 proot
-        if with_proot:
-            rc, out, err = self.shell(
-                "proot-distro remove ubuntu >/dev/null 2>&1; echo rc=$?",
-                serial=serial, root=root, timeout=180)
-            steps.append(("删除 proot Ubuntu", "rc=0" in out, err))
+        self.shell("rm -f /sdcard/Download/termux.apk", serial=serial, root=root, timeout=30)
+        steps.append(("清理手机下载目录", True, ""))
 
         return steps
 
-    # ---------- 无 root 全自动：界面自动化 ----------
     def screen_on(self, serial):
         """亮屏 + 尝试解除锁屏，不然 input 打不进 Termux。"""
         self.run(["shell", "input keyevent 224"], timeout=15, serial=serial)   # WAKEUP
@@ -887,6 +926,7 @@ class App:
 
 
     def uninstall(self):
+        """一键卸载（有 root 直接删；无 root 走界面自动化，全自动完成）"""
         if self.busy:
             return
         if not self.d.adb:
@@ -897,55 +937,53 @@ class App:
             messagebox.showerror("没有设备", "请先连接手机。")
             return
 
+        rooted = self.d.has_root(self.serial)
+        extra = "" if rooted else "\n\n注意：没有 root 时，会连 Termux 一起卸载" \
+                                 "（容器、Python、程序目录都在里面）。"
         ans = messagebox.askyesnocancel(
             "确认卸载",
-            "要从手机上卸载 Botagent 吗？\n\n"
+            "要从手机上卸载 Botagent 吗？" + extra + "\n\n"
             "选「是」：删除程序，配置备份到 /sdcard/Download/\n"
             "选「否」：连配置一起彻底删除\n"
             "选「取消」：什么都不做")
         if ans is None:
             return
         purge = (ans is False)
-        with_proot = messagebox.askyesno(
-            "proot 容器",
-            "要不要连 proot Ubuntu 一起删？\n\n"
-            "（约 500MB，里面有 Linux QQ 和登录状态；\n"
-            "   留着的话下次可以复用）")
+
+        with_proot = False
+        if rooted:
+            with_proot = messagebox.askyesno(
+                "proot 容器",
+                "要不要连 proot Ubuntu 一起删？\n\n"
+                "（约 500MB，里面有 Linux QQ 和登录状态；\n"
+                "   留着的话下次可以复用）")
+        else:
+            self.log("无 root：会连 Termux 一起卸载，容器随之清除", "warn")
 
         self.busy = True
         self.btn_go.config(state="disabled")
 
         def work():
             try:
-                rooted = self.d.has_root(self.serial)
-                self.log("开始卸载（%s）" % ("有 root" if rooted else "无 root"), "info")
-                if not rooted:
-                    self.log("无 root：需要在手机上手动跑一次卸载脚本", "warn")
-                    self.d.shell("mkdir -p " + PHONE_TMP, serial=self.serial)
-                    _us = os.path.join(find_src() or ".", "..", "deploy", "uninstall.sh")
-                    if os.path.isfile(_us):
-                        self.d.run(["push", _us, PHONE_TMP + "/uninstall.sh"], serial=self.serial)
-                        self.log("已把 uninstall.sh 推到 %s" % PHONE_TMP, "ok")
-                    self.log("请让手机连电脑后，在 Termux 里执行：", "warn")
-                    self.log("bash /sdcard/Download/botagent/uninstall.sh", "info")
-                else:
-                    steps = self.d.uninstall(self.serial, purge=purge,
-                                             with_proot=with_proot, root=True)
-                    ok = True
-                    for name, passed, err in steps:
-                        if passed:
-                            self.log("%s ✓" % name, "ok")
-                        else:
-                            ok = False
-                            self.log("%s ✗ %s" % (name, (err or "").strip()[:150]), "err")
-                    if ok:
-                        self.log("卸载完成" + ("（含配置）" if purge else "（配置已备份）"), "ok")
-                        messagebox.showinfo("卸载完成",
-                                            "手机上已经没有 Botagent 了。\n\n"
-                                            + ("配置也删了。" if purge else
-                                               "配置备份在 /sdcard/Download/botagent-config-backup.json"))
+                self.log("开始卸载（%s）" % ("有 root" if rooted else "无 root 自动"), "info")
+                steps = self.d.uninstall(self.serial, purge=purge,
+                                         with_proot=with_proot, root=rooted)
+                ok_all = True
+                for name, passed, err in steps:
+                    if passed:
+                        self.log("%s ✓" % name, "ok")
                     else:
-                        messagebox.showwarning("部分步骤失败", "看日志里的红色行。")
+                        ok_all = False
+                        self.log("%s ✗ %s" % (name, (err or "").strip()[:150]), "err")
+                if ok_all:
+                    self.log("卸载完成" + ("（含配置）" if purge else "（配置已备份）"), "ok")
+                    messagebox.showinfo(
+                        "卸载完成",
+                        "手机上已经没有 Botagent 了。\n\n"
+                        + ("配置也删了。" if purge
+                           else "配置备份在 /sdcard/Download/botagent-config-backup.json"))
+                else:
+                    messagebox.showwarning("部分步骤失败", "看日志里的红色行。")
             except Exception as e:
                 self.log("卸载出错：%s" % e, "err")
             finally:
@@ -953,7 +991,6 @@ class App:
                 self.btn_go.config(state="normal")
 
         threading.Thread(target=work, daemon=True).start()
-
 
     def install_console(self):
         """把手机控制台 App（Botagent.apk）装到手机上并打开。"""
