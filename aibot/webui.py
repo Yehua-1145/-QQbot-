@@ -18,7 +18,7 @@ DEFAULT_PERSONA = """你叫「蓝色大肥鱼」，是主人的私人 AI 助手�
 回答简短直接，别端着，也别反复道歉。
 不懂就说不懂，不编造。"""
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 APP_DIR = "/data/data/com.termux/files/home/aibot"
 
 
@@ -271,10 +271,23 @@ NAP_LOG = ("/data/data/com.astrbot.astrbot_android/files/usr/var/lib/"
 
 
 def _qr_online():
+    """真的在线才算在线：状态文件要新鲜，且协议端 3001 在监听。
+    以前只读 qq_state.json，bot 挂了也会显示「已登录」，导致二维码永远出不来。"""
     try:
         import json as _j
+        import time as _t
         st = _j.load(open("/data/data/com.termux/files/home/aibot/qq_state.json", encoding="utf-8"))
-        return st.get("online") is True
+        if st.get("online") is not True:
+            return False
+        ts = int(st.get("ts") or 0)
+        if ts and (_t.time() - ts) > 180:      # 3 分钟没更新 -> 视为掉线
+            return False
+        try:
+            if not _fast_status()["ports"] or "3001" not in _fast_status()["ports"]:
+                return False
+        except Exception:
+            pass
+        return True
     except Exception:
         return False
 
@@ -490,6 +503,21 @@ def _napcat_status():
     _nap_cache["data"] = out
     return out
 
+
+
+QR_WAIT_FILE = "/data/local/tmp/.qr_restart_ts"
+
+
+def _qr_wait_seconds():
+    """qr_restart 触发后已经等了多少秒（<0 表示没有在生成）。"""
+    try:
+        import time as _t
+        ts = float(open(QR_WAIT_FILE).read().strip())
+        return int(_t.time() - ts)
+    except Exception:
+        return -1
+
+
 def _qr_state():
     """返回二维码图片的 mtime（用来判断新鲜度）。"""
     import os as _os
@@ -522,7 +550,8 @@ async function load(force){
   try{
     const r=await fetch('/api/qr_url?token=TOKEN',{cache:'no-store'});
     const d=await r.json();
-    if(d.online){document.getElementById('st').textContent='已登录，无需扫码';return;}
+    if(d.online && !d.generating){document.getElementById('st').textContent='已登录，无需扫码';return;}
+    if(d.generating){document.getElementById('st').textContent='正在重启协议端并生成二维码… 已等待 '+(d.waited>=0?d.waited:0)+' 秒（约 40~70 秒）';}
     if(!d.url){document.getElementById('st').textContent='暂时没有可用二维码，正在等 NapCat 出码…';return;}
     if(force||d.url!==last){
       last=d.url;
@@ -1018,13 +1047,36 @@ def _console_action(action):
         return (rc == 0), "NapCat 重启中（约 60 秒）", {}
 
     if action == "qr_restart":
+        # 已经在线就别动：重启会掉线，用户等半天也看不到码
+        if _qr_online():
+            return False, "现在已经在线，不需要二维码。真要重新登录，请先点「重启 NapCat」", {}
         # 快速登录/密码登录都失败时，强制走扫码：临时停用凭据文件再重启
         run("if [ -f /data/local/tmp/.napcat_secret ]; then "
             "mv -f /data/local/tmp/.napcat_secret /data/local/tmp/.napcat_secret.off; fi", 20)
+        # 清掉可能存在的重启锁，否则 NapCat 会拒绝重启
+        run("rm -f /data/local/tmp/.napcat.lock /data/local/tmp/.qr_restart_ts", 20)
+        run("date +%s > /data/local/tmp/.qr_restart_ts", 20)
         run("rm -f " + QR_PATH + " 2>/dev/null", 20)
-        _wait_port_free(3001, 20)
-        rc, o, e = run("sh /data/local/tmp/restart_nap.sh", 180)
-        return (rc == 0), "正在强制重新生成二维码（约 50~70 秒）", {}
+        # 后台重启，立刻返回；前端靠 /api/qr_url 的 waited 显示进度
+        run("setsid sh /data/local/tmp/restart_nap.sh "
+            ">/data/local/tmp/qr_restart.log 2>&1 < /dev/null &", 15)
+        # 等一会儿确认容器真的起来了，否则把原因带回去
+        import time as _t
+        _t.sleep(12)
+        alive = False
+        try:
+            rc2, ports, _ = run("netstat -tln 2>/dev/null | grep -c ':6099'", 10)
+            alive = (ports or "").strip() not in ("", "0")
+        except Exception:
+            pass
+        if not alive:
+            tail = ""
+            try:
+                tail = run("tail -6 /data/local/tmp/qr_restart.log", 10)[1]
+            except Exception:
+                pass
+            return False, "协议端没能起来，可以再点一次；反复失败请把日志发给开发者", {"log": tail[-500:]}
+        return True, "正在重启协议端并生成二维码（约 40~70 秒，别离开这一页）", {}
 
     if action == "prefetch":
         rc, o, e = run("cd %s && PF_ANYTIME=1 PF_FORCE_JM=1 setsid nice -n 15 %s prefetch.py --now "
@@ -1246,12 +1298,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == "/api/qr_url":
+            _waited = _qr_wait_seconds()
             import json as _j
             import time as _t
             u = _newest_qr_url(600)
             st = _qr_state()
             age = int(_t.time() - st.get("mtime", 0)) if st.get("mtime") else -1
-            body = _j.dumps({"url": u, "age": age, "online": _qr_online()},
+            _gen = bool(_waited >= 0 and _waited < 150 and not u)
+            body = _j.dumps({"url": u, "age": age, "online": _qr_online(),
+                             "generating": _gen, "waited": _waited},
                             ensure_ascii=False).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1647,7 +1702,7 @@ body{background:var(--bg);overscroll-behavior-y:none;-webkit-tap-highlight-color
       --acc:#2ea043;--blue:#1f6feb;--warn:#d29922;--err:#f85149;
       --hdr:rgba(13,17,23,.97);--nav:rgba(16,22,29,.99);--input:#070a0e;--log:#050809}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{margin:0;background:var(--bg);color:var(--fg);transition:background .25s,color .25s;font:15px/1.5 system-ui,-apple-system,"PingFang SC",sans-serif}
+body{margin:0;background:var(--bg);color:var(--fg);max-width:100%;overflow-x:hidden;transition:background .25s,color .25s;font:15px/1.5 system-ui,-apple-system,"PingFang SC",sans-serif}
 
 /* 启动页 */
 #splash{position:fixed;inset:0;z-index:100;background:#0d1117;display:flex;flex-direction:column;
@@ -1749,10 +1804,14 @@ pre{background:var(--log);border:1px solid var(--line);border-radius:10px;paddin
 img.qr{width:230px;height:230px;background:#fff;border-radius:10px;display:block;margin:10px auto}
 
 /* 聊天 */
-#chat{display:flex;flex-direction:column;min-height:calc(100vh - 46px)}
-#msgs{flex:1;padding-top:14px;padding-right:12px;padding-bottom:8px;padding-left:12px;display:flex;flex-direction:column;gap:10px;overflow-y:auto}
+/* 聊天：固定可用高度，消息区内部滚动，避免长对话被输入框盖住 */
+#t-chat{display:flex;flex-direction:column;height:calc(100vh - 110px);overflow:hidden;max-width:100%}
+#chat{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+#msgs{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  padding-top:14px;padding-right:12px;padding-bottom:calc(84px + env(safe-area-inset-bottom));padding-left:12px;
+  display:flex;flex-direction:column;gap:10px}
 .msg{max-width:86%;padding-top:10px;padding-right:13px;padding-bottom:10px;padding-left:13px;border-radius:14px;font-size:15px;line-height:1.55;
-  white-space:pre-wrap;word-break:break-word;animation:fin .18s ease-out}
+  white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;animation:fin .18s ease-out}
 @keyframes fin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .msg.me{align-self:flex-end;background:var(--blue);color:#fff;border-bottom-right-radius:5px}
 .msg.ai{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-bottom-left-radius:5px}
@@ -1761,11 +1820,11 @@ img.qr{width:230px;height:230px;background:#fff;border-radius:10px;display:block
   background:#13221a;color:#7ee787;border:1px solid #2ea04344}
 .cursor::after{content:"▍";animation:blink 1s steps(1) infinite;color:var(--blue)}
 @keyframes blink{50%{opacity:0}}
-#composer{position:fixed;left:0;right:0;bottom:64px;padding-top:8px;padding-right:10px;padding-bottom:8px;padding-left:10px;background:var(--na;v);
+#composer{position:fixed;left:0;right:0;bottom:64px;max-width:100%;box-sizing:border-box;padding-top:8px;padding-right:10px;padding-bottom:8px;padding-left:10px;background:var(--na;v);
   border-top:1px solid var(--line);display:flex;gap:8px;align-items:flex-end}
-#inp{flex:1;resize:none;max-height:120px;min-height:44px;line-height:22px;padding-top:11px;padding-right:13px;padding-bottom:11px;padding-left:13px;border-radius:12px;
+#inp{flex:1 1 auto;min-width:0;resize:none;max-height:120px;min-height:44px;line-height:22px;padding-top:11px;padding-right:13px;padding-bottom:11px;padding-left:13px;border-radius:12px;
   background:var(--card);border:1px solid var(--line);color:var(--fg);font:15px/1.45 inherit}
-#send{flex:0 0 auto;width:auto;min-width:74px;padding-top:11px;padding-right:16px;padding-bottom:11px;padding-left:16px;border-radius:12px;
+#send{flex:0 0 auto;width:auto;min-width:64px;padding-top:11px;padding-right:16px;padding-bottom:11px;padding-left:16px;border-radius:12px;
   background:var(--acc);border:0;color:#fff;font-weight:600}
 #send:disabled{background:var(--input);color:var(--dim)}
 
@@ -1939,7 +1998,7 @@ nav div b{display:block;font-size:17px;font-weight:400;margin-bottom:2px}
       <span class="avph">鱼</span>
     </div>
     <a class="bbtn" href="__BILI_URL__" target="_blank">看主页 →</a>
-    <b class="bname">Botagent</b>
+    <b class="bname">神秘红叶华</b>
   </div>
 
   <div class="card">
@@ -2252,6 +2311,7 @@ document.querySelectorAll("nav div").forEach(d=>{
     document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
     d.classList.add("on");
     $("t-"+d.dataset.t).classList.add("active");
+    if(d.dataset.t==="chat"){ setTimeout(function(){ var m=$("msgs"); if(m) m.scrollTop=m.scrollHeight; }, 30); }
     if(d.dataset.t==="status") loadStatus();
     if(d.dataset.t==="model") loadModel();
     if(d.dataset.t==="console"){ loadLog(); loadQR(); }
@@ -2478,14 +2538,20 @@ async function loadQR(force){
   const hint=$("qrhint"), qimg=$("qrimg"), st=$("qrstat");
   try{
     const d=await jget("/api/qr_url");
-    if(d.online){
+    if(d.online && !d.generating){
       if(st) st.textContent="\u2705 已登录，无需扫码";
       if(hint) hint.textContent="QQ 已在线，不需要二维码";
+      window._qrGenerating = false;
       if(qimg){ qimg.removeAttribute("src"); qimg.style.display="none"; }
       return;
     }
-    let msg="等 NapCat 出码…";
-    if(d.nap_state==="verify") msg="QQ 要求短信/安全验证，请在 NapCat 后台完成，再点「重新生成二维码」";
+    window._qrGenerating = !!d.generating;
+    let msg="等协议端出码…";
+    if(d.generating){
+      const w = d.waited >= 0 ? d.waited : 0;
+      msg = "正在重启协议端并生成二维码… 已等待 " + w + " 秒（约需 40~70 秒，别离开这一页）";
+    }
+    else if(d.nap_state==="verify") msg="QQ 要求短信/安全验证，请在 NapCat 后台完成，再点「重新生成二维码」";
     else if(d.nap_phase==="qrcode_scanned") msg="已扫码，正在初始化…";
     else if(!d.url) msg="还没生成二维码 —— 点「重新生成二维码」";
     if(hint) hint.textContent=msg;
@@ -2735,7 +2801,13 @@ maybeShowGuide();
 setInterval(pollQQ, 2000);
 setInterval(loadGallery, 15000);
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) { pollQQ(); loadGallery(); } });
-setInterval(()=>{if($("t-console").classList.contains("active"))loadQR()},4000);
+let _qrTick=0;
+setInterval(()=>{
+  if(!$("t-console").classList.contains("active")) return;
+  _qrTick++;
+  var fast = window._qrGenerating ? 1 : 2;   // 生成中每 2 秒查一次
+  if(_qrTick % fast === 0) loadQR();
+},2000);
 </script>
 </body>
 </html>
