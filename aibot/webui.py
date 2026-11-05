@@ -18,7 +18,7 @@ DEFAULT_PERSONA = """你叫「蓝色大肥鱼」，是主人的私人 AI 助手�
 回答简短直接，别端着，也别反复道歉。
 不懂就说不懂，不编造。"""
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 APP_DIR = "/data/data/com.termux/files/home/aibot"
 
 
@@ -1695,14 +1695,14 @@ APP2 = r"""<!doctype html>
 <style>
 
 /* 去掉滑动时的白色边缘（回弹/光晕） */
-html{background:var(--bg);height:100%;overscroll-behavior:none}
+html{background:var(--bg);overscroll-behavior:none;overflow-x:hidden}
 body{background:var(--bg);overscroll-behavior-y:none;-webkit-tap-highlight-color:transparent}
 #splash{background:var(--bg) !important}
 :root{--bg:#0d1117;--card:#161b22;--line:#26303d;--fg:#e6edf3;--dim:#8b949e;
       --acc:#2ea043;--blue:#1f6feb;--warn:#d29922;--err:#f85149;
       --hdr:rgba(13,17,23,.97);--nav:rgba(16,22,29,.99);--input:#070a0e;--log:#050809}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{margin:0;background:var(--bg);color:var(--fg);max-width:100%;overflow-x:hidden;transition:background .25s,color .25s;font:15px/1.5 system-ui,-apple-system,"PingFang SC",sans-serif}
+body{margin:0;background:var(--bg);color:var(--fg);max-width:100%;transition:background .25s,color .25s;font:15px/1.5 system-ui,-apple-system,"PingFang SC",sans-serif}
 
 /* 启动页 */
 #splash{position:fixed;inset:0;z-index:100;background:#0d1117;display:flex;flex-direction:column;
@@ -1805,7 +1805,8 @@ img.qr{width:230px;height:230px;background:#fff;border-radius:10px;display:block
 
 /* 聊天 */
 /* 聊天：固定可用高度，消息区内部滚动，避免长对话被输入框盖住 */
-#t-chat{display:flex;flex-direction:column;height:calc(100vh - 110px);overflow:hidden;max-width:100%}
+#t-chat{display:none;flex-direction:column;height:calc(100vh - 110px);overflow:hidden;max-width:100%}
+#t-chat.active{display:flex}
 #chat{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 #msgs{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
   padding-top:14px;padding-right:12px;padding-bottom:calc(84px + env(safe-area-inset-bottom));padding-left:12px;
@@ -1998,7 +1999,7 @@ nav div b{display:block;font-size:17px;font-weight:400;margin-bottom:2px}
       <span class="avph">鱼</span>
     </div>
     <a class="bbtn" href="__BILI_URL__" target="_blank">看主页 →</a>
-    <b class="bname">神秘红叶华</b>
+    <b class="bname">Botagent</b>
   </div>
 
   <div class="card">
@@ -2316,8 +2317,8 @@ document.querySelectorAll("nav div").forEach(d=>{
     if(d.dataset.t==="model") loadModel();
     if(d.dataset.t==="console"){ loadLog(); loadQR(); }
     if(d.dataset.t==="settings"){ loadSettings(); }
-    /* 切页签回到顶部，避免停留在上一个页签的滚动位置 */
-    try{ window.scrollTo(0,0); }catch(e){}
+    /* 切页签回到顶部（window / html / body / 各页签都要复位） */
+    resetScrollTop();
     document.querySelectorAll(".tab").forEach(function(sec){
       try{ sec.scrollTop = 0; }catch(e){}
     });
@@ -2689,6 +2690,21 @@ async function checkUpdate(){
 
 
 /* 打开覆盖页时锁住底层页面滚动，避免「滑一下页面跟着跑」 */
+
+/* 把「所有可能的滚动容器」都拉回顶部。
+   只调 window.scrollTo 不够：body 一旦有 overflow 就会自己变成滚动容器，
+   它的 scrollTop 是独立保存的，切页签时会残留。 */
+function resetScrollTop(){
+  try{
+    var els = [document.scrollingElement, document.documentElement, document.body];
+    for(var i=0;i<els.length;i++){
+      var e = els[i];
+      if(e){ e.scrollTop = 0; e.scrollLeft = 0; }
+    }
+    window.scrollTo(0, 0);
+  }catch(e){}
+}
+
 function lockBody(on){
   try{
     if(on){ window._scrollY = window.scrollY || 0; document.body.style.overflow = "hidden"; }
@@ -2705,6 +2721,7 @@ function closeOverlay(id){
   var el = typeof id === "string" ? $(id) : id;
   if(el){ el.classList.remove("open"); }
   lockBody(false);
+  resetScrollTop();
 }
 
 function openMore(){
