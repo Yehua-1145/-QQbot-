@@ -1,5 +1,9 @@
 # Botagent
 
+[![Release](https://img.shields.io/badge/release-v1.0.1-2ea043?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/releases/latest)
+[![Platform](https://img.shields.io/badge/Android-7.0%2B-3DDC84?style=flat-square&logo=android)](https://github.com/Yehua-1145/-QQbot-)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/blob/main/LICENSE)
+
 **把 QQ AI 机器人装进一台普通安卓手机。**
 
 不用 root，不用服务器，不用买云主机。电脑插上数据线点一下就能装完，装完手机上还有一个自己的控制台。
@@ -20,8 +24,8 @@ QQ 消息 → NapCat（QQ 协议端）→ 你的大模型 → 回复
 下载后解压，进 `Windows一键部署` 目录，双击 `BotagentDeploy.exe` 即可。
 
 ```text
-Botagent-v1.0.zip          16.83 MB
-SHA256  5E28A5F4A7C674A848B68170C9A276223001E30DCADFEAA0608A7C8F83A74089
+Botagent-v1.0.1.zip        16.84 MB
+SHA256  33BEE9EF7DEA764FEA1B33771374F85962D386DC116ABF83E2325FF6F1B15ED7
 ```
 
 ---
