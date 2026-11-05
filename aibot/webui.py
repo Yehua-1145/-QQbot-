@@ -18,7 +18,7 @@ DEFAULT_PERSONA = """你叫「蓝色大肥鱼」，是主人的私人 AI 助手�
 回答简短直接，别端着，也别反复道歉。
 不懂就说不懂，不编造。"""
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 APP_DIR = "/data/data/com.termux/files/home/aibot"
 
 
@@ -216,6 +216,7 @@ PANEL = """<!doctype html><meta charset=utf-8><title>Botagent 控制台</title>
 
 #personapage .fbbody,#guidepage .fbbody,#morepage .fbbody,#fbpage 
 body.locked{overflow:hidden}
+
 body{font-family:system-ui,sans-serif;margin:0;padding:12px;background:#101418;color:#e8e8e8}
 h2{margin:4px 0 12px}
 .card{background:#1c232b;border-radius:12px;padding:12px;margin-bottom:10px}
@@ -1199,10 +1200,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 with open(MODE_FILE, "r", encoding="utf-8") as f:
                     out["mode"] = f.read().strip()
+                # 深度抓图关着时，模式文件里即使写着 r18 也不生效
+                try:
+                    if not _cfg_read().get("r18_prefetch"):
+                        out["mode"] = "normal"
+                except Exception:
+                    pass
             except Exception:
                 pass
             try:
                 import os as _os
+                try:
+                    _c = _cfg_read()
+                    out["r18_prefetch"] = bool(_c.get("r18_prefetch"))
+                    out["r18_uids"] = len(_c.get("r18_allowed_uids") or [])
+                    out["r18_groups"] = len(_c.get("r18_allowed_groups") or [])
+                except Exception:
+                    out["r18_prefetch"] = False
                 try:
                     _rs = "/sdcard/Pictures/大肥鱼图库/rotate_state.json"
                     if _os.path.isfile(_rs):
@@ -1411,6 +1425,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             cfg = _cfg_read()
             self._json({
                 "r18_prefetch": bool(cfg.get("r18_prefetch")),
+                "r18_allowed_uids": list(cfg.get("r18_allowed_uids") or []),
+                "r18_allowed_groups": list(cfg.get("r18_allowed_groups") or []),
                 "rotate_enabled": bool(cfg.get("rotate_enabled", True)),
                 "rotate_hours": int(cfg.get("rotate_hours") or 24),
                 "rotate_count": int(cfg.get("rotate_count") or 40),
@@ -1566,6 +1582,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
             cfg = _cfg_read()
             if "r18_prefetch" in body:
                 cfg["r18_prefetch"] = bool(body["r18_prefetch"])
+                # 关闭时立刻把模式降回 normal，避免界面显示 r18 但其实不可用
+                if not cfg["r18_prefetch"]:
+                    try:
+                        with open(MODE_FILE, "w", encoding="utf-8") as _mf:
+                            _mf.write("normal")
+                    except Exception:
+                        pass
+            if "r18_allowed_uids" in body:
+                raw = body["r18_allowed_uids"]
+                uids = []
+                for x in (raw if isinstance(raw, list) else str(raw).replace("，", ",").split(",")):
+                    t = str(x).strip()
+                    if t.isdigit():
+                        uids.append(int(t))
+                cfg["r18_allowed_uids"] = uids
+            if "r18_allowed_groups" in body:
+                raw = body["r18_allowed_groups"]
+                gids = []
+                for x in (raw if isinstance(raw, list) else str(raw).replace("，", ",").split(",")):
+                    t = str(x).strip()
+                    if t.isdigit():
+                        gids.append(int(t))
+                cfg["r18_allowed_groups"] = gids
             if "rotate_enabled" in body:
                 cfg["rotate_enabled"] = bool(body["rotate_enabled"])
             if "rotate_hours" in body:
@@ -1801,6 +1840,10 @@ pre{background:var(--log);border:1px solid var(--line);border-radius:10px;paddin
 #btn-refresh:active{background:var(--line)}
 #btn-refresh.spin{animation:spin .7s linear infinite}
 @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.wl{width:100%;box-sizing:border-box;min-height:64px;padding:10px;border-radius:10px;
+  background:var(--input);border:1px solid var(--line);color:var(--fg);font:14px/1.5 inherit;
+  resize:vertical}
+#r18white.off{opacity:.55}
 img.qr{width:230px;height:230px;background:#fff;border-radius:10px;display:block;margin:10px auto}
 
 /* 聊天 */
@@ -2118,6 +2161,19 @@ nav div b{display:block;font-size:17px;font-weight:400;margin-bottom:2px}
         <button id="btn-r18" onclick="askR18()">开启深度抓图</button>
       </div>
       <div class="mini" id="morehint" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card" style="margin:0 0 12px" id="r18white">
+      <h2>深度抓图白名单</h2>
+      <div class="mini" style="margin-bottom:10px">
+        深度抓图打开后，<b>只有下面这些账号和群</b>能用成人图源。留空 = 谁都不能用（包括主人）。
+      </div>
+      <div class="mini" style="margin-bottom:4px">允许的 QQ 号（逗号或换行分隔）</div>
+      <textarea id="wuids" placeholder="1000001, 1000002" class="wl"></textarea>
+      <div class="mini" style="margin:10px 0 4px">允许的群号（群里仍需 @机器人）</div>
+      <textarea id="wgroups" placeholder="123456789" class="wl"></textarea>
+      <div class="btns"><button onclick="saveWhitelist()">保存白名单</button></div>
+      <div class="mini" id="whint" style="margin-top:10px"></div>
     </div>
     <div class="card" style="margin:0 0 12px">
       <h2>图库自动换新</h2>
@@ -2724,6 +2780,34 @@ function closeOverlay(id){
   resetScrollTop();
 }
 
+
+/* ---------------- 深度抓图白名单 ---------------- */
+async function loadWhitelist(){
+  try{
+    const d = await jget("/api/settings");
+    const u = $("wuids"), g = $("wgroups");
+    if(u) u.value = (d.r18_allowed_uids||[]).join(", ");
+    if(g) g.value = (d.r18_allowed_groups||[]).join(", ");
+    const box = $("r18white");
+    if(box) box.classList.toggle("off", !d.r18_prefetch);
+    const h = $("whint");
+    if(h) h.textContent = d.r18_prefetch
+      ? ( (d.r18_allowed_uids||[]).length + (d.r18_allowed_groups||[]).length
+          ? "当前已配置白名单" : "⚠️ 白名单为空：打开深度抓图后谁都不能用" )
+      : "深度抓图关闭中，白名单暂不生效";
+  }catch(e){}
+}
+async function saveWhitelist(){
+  const u = ($("wuids").value||"").replace(/\n/g, ",");
+  const g = ($("wgroups").value||"").replace(/\n/g, ",");
+  const d = await jpost("/api/settings", {
+    r18_allowed_uids: u.split(",").map(x=>x.trim()).filter(Boolean),
+    r18_allowed_groups: g.split(",").map(x=>x.trim()).filter(Boolean)
+  });
+  if(d.ok){ toast("白名单已保存"); loadWhitelist(); }
+  else toast("保存失败");
+}
+
 function openMore(){
   openOverlay("morepage");
   loadSettings();
@@ -2748,6 +2832,7 @@ async function setR18(v){
   if(d.ok){
     toast(v ? "已开启深度抓图（可能含 R18 内容）" : "已关闭深度抓图");
     loadSettings();
+    loadWhitelist();
   }else{
     toast("保存失败：" + (d.error||""));
   }

@@ -41,11 +41,22 @@ OWNER_UID = int(_BOT_CFG.get("owner_uid")
 _cfg_allowed_private_uids = _BOT_CFG.get("allowed_private_uids") or []
 ALLOWED_PRIVATE_UIDS = (set(int(x) for x in _cfg_allowed_private_uids)
                         if _cfg_allowed_private_uids else {OWNER_UID})
-# 可以使用成人向图源（E站 / 禁漫）的账号
+# ===== 成人向（r18）图源的三层开关 =====
+# 第 1 层：深度抓图（r18_prefetch）—— 总开关，关着时所有人都不能用，包括主人
+# 第 2 层：r18_allowed_uids / r18_allowed_groups —— 白名单，只有名单里的账号/群能用
+# 第 3 层：perms.json 里的临时授权（主人发「给 xxx r18 权限」写入
 _cfg_adult_uids = _BOT_CFG.get("adult_uids") or []
-ADULT_UIDS = set(int(x) for x in _cfg_adult_uids) if _cfg_adult_uids else {OWNER_UID}
-# 可以使用成人向图源的群聊（群里仍需 @bot 才回复）
-ADULT_GROUPS = set()      # 不再给任何群开成人图源
+ADULT_UIDS = set(int(x) for x in _cfg_adult_uids) if _cfg_adult_uids else set()
+_cfg_r18_groups = _BOT_CFG.get("r18_allowed_groups") or []
+ADULT_GROUPS = set(int(x) for x in _cfg_r18_groups) if _cfg_r18_groups else set()
+
+
+def _r18_master_on():
+    """深度抓图总开关。关着时任何人（含主人）都不能碰成人图源。"""
+    try:
+        return bool(_BOT_CFG.get("r18_prefetch"))
+    except Exception:
+        return False
 # 兼容旧变量名
 ALLOWED_UID = OWNER_UID
 # group chats that are allowed to talk to the bot (must @mention it)
@@ -121,11 +132,27 @@ def _save_perms(d):
 
 
 def _adult_uids():
+    """能用成人图源的账号。深度抓图关着时恒为空集。"""
+    if not _r18_master_on():
+        return set()
     return set(ADULT_UIDS) | set(_load_perms()["adult_uids"])
 
 
 def _adult_groups():
+    """能用成人图源的群。深度抓图关着时恒为空集。"""
+    if not _r18_master_on():
+        return set()
     return set(ADULT_GROUPS) | set(_load_perms()["adult_groups"])
+
+
+def _r18_blocked_reason(uid, gid, mtype):
+    """返回 None 表示允许；否则返回给用户看的一句话。"""
+    if _r18_master_on():
+        allowed = (uid in _adult_uids()) or (mtype == "group" and gid in _adult_groups())
+        return None if allowed else "这个功能没开给你，找主人申请"
+    if uid == OWNER_UID:
+        return "深度抓图默认关闭（连主人也不开）。要到控制台「设置 → 更多设置」里打开"
+    return "深度抓图没开"
 
 
 def _perm_cmd(text):
@@ -1721,17 +1748,24 @@ def _process_one(item):
         if uid != OWNER_UID:
             _reply(ws, mtype, uid, item["group_id"], "❌ 只有主人账号可以切换模式。")
             return
+        if not _r18_master_on():
+            _reply(ws, mtype, uid, item["group_id"],
+                   "🔒 R18 模式默认全局关闭（连主人也不开）。\n"
+                   "先到手机控制台「设置 → 更多设置」打开「深度抓图」，再回来切换。")
+            return
         _set_mode("r18")
         _audit(uid, "r18", text, "mode switched to r18")
         _reply(ws, mtype, uid, item["group_id"],
                "✅ 已切换到 **R18 模式**（E站 + 禁漫都能用，模糊指令直接出 5 页预览）。")
         return
 
-    # 成人向授权：主人 / 授权账号 / 授权群聊
-    in_adult_group = (mtype == "group" and item["group_id"] in ADULT_GROUPS)
+    # 成人向授权：总开关（深度抓图）关着 -> 一律 normal，谁都不例外
+    in_adult_group = (mtype == "group" and item["group_id"] in _adult_groups())
     has_adult = (uid in _adult_uids()) or in_adult_group
-    # 有成人向授权的跟随全局模式，其余一律走 normal（安全图源）
-    mode = _get_mode() if (uid == OWNER_UID or has_adult) else "normal"
+    if not _r18_master_on():
+        has_adult = False
+        ctx_safe_only = True
+    mode = _get_mode() if has_adult else "normal"
     # 安全模式群：不管全局是什么模式，一律 normal（无限图源）
     if mtype == "group" and item["group_id"] in SAFE_GROUPS:
         mode = "normal"
@@ -1748,7 +1782,8 @@ def _process_one(item):
     log("task from %s: %s (mode=%s)" % (uid, task[:120], mode))
     ctx = _ctx()
     ctx.update({"ws": ws, "user_id": uid, "group_id": item["group_id"], "msg_type": mtype,
-                "is_guest": uid != OWNER_UID})
+                "is_guest": uid != OWNER_UID,
+                "r18_ok": bool(has_adult and _r18_master_on())})
     ctx["pending_images"] = []
     ctx["last_img_flush"] = time.time()
     # 安全模式群：只允许二次元 / cosplay 图，禁用成人图源

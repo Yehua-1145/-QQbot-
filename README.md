@@ -1,6 +1,6 @@
 # Botagent
 
-[![Release](https://img.shields.io/badge/release-v1.0.2-2ea043?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/releases/latest)
+[![Release](https://img.shields.io/badge/release-v1.0.3-2ea043?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/releases/latest)
 [![Platform](https://img.shields.io/badge/Android-7.0%2B-3DDC84?style=flat-square&logo=android)](https://github.com/Yehua-1145/-QQbot-)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/blob/main/LICENSE)
 
@@ -24,8 +24,8 @@ QQ 消息 → NapCat（QQ 协议端）→ 你的大模型 → 回复
 下载后解压，进 `Windows一键部署` 目录，双击 `BotagentDeploy.exe` 即可。
 
 ```text
-Botagent-v1.0.2.zip        16.84 MB
-SHA256  090201C7BDDD76F0DF7C72080E66E29B7739D51F2B6CB4B976C48AAFC1877DBC
+Botagent-v1.0.3.zip        16.85 MB
+SHA256  80A284511F041219052C27876B6DE76DEC1BA1482DA3AD0D9BD5812DF81C26A7
 ```
 
 ---
@@ -438,6 +438,31 @@ adb devices
 完整条款见 [DISCLAIMER.md](DISCLAIMER.md)。
 
 ---
+
+### 成人图源的三层开关（2026-11-05 起）
+
+成人向图源**默认全局关闭，连主人也不开**。要用必须同时满足：
+
+| 层级 | 在哪控制 | 说明 |
+|---|---|---|
+| **① 总开关** | 控制台 → 设置 → 更多设置 → 深度抓图 | 关着时**任何人都不能用**（含主人），工具层直接拒绝 |
+| **② 白名单** | 同一页的「深度抓图白名单」 | 只有名单里的 QQ 号 / 群号能用；**留空 = 谁都不能用** |
+| **③ 临时授权** | 主人私聊发「给 123456 r18 权限」 | 写入 `perms.json`，可随时收回 |
+
+三者是**与**的关系：总开关关 → 白名单失效；总开关开但白名单没你 → 用不了。
+
+查看当前状态：私聊发「看权限」，会返回总开关、白名单、临时授权三层信息。
+
+```jsonc
+// config.json
+{
+  "r18_prefetch": false,              // 总开关，默认 false
+  "r18_allowed_uids": [],             // 白名单 QQ 号
+  "r18_allowed_groups": []            // 白名单群号
+}
+```
+
+关掉总开关时，模式会自动降回 normal，界面也不会再显示 R18。
 
 ## 已知限制与反馈
 

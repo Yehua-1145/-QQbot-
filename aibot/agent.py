@@ -22,7 +22,7 @@ def _normalize_base(url):
       https://api.deepseek.com                  -> https://api.deepseek.com/chat/completions
       https://api.openai.com/v1                 -> https://api.openai.com/v1/chat/completions
       https://xxx/v1/chat/completions           -> 原样
-      http://192.0.2.10:11434/v1               -> .../v1/chat/completions  （本地 Ollama 也行）
+      http://192.168.1.5:11434/v1               -> .../v1/chat/completions  （本地 Ollama 也行）
     """
     u = (url or "").strip().rstrip("/")
     if not u:
@@ -175,7 +175,28 @@ def _user_persona():
         return ""
 
 
+def _r18_master_on():
+    """深度抓图总开关：关着时连主人也不能用成人图源。"""
+    try:
+        import json as _json
+        with open(CFG_PATH, encoding="utf-8") as f:
+            return bool(_json.load(f).get("r18_prefetch"))
+    except Exception:
+        return False
+
+
+def _r18_tool_guard(name):
+    """成人向工具在深度抓图关闭时一律拒绝。"""
+    if _r18_master_on():
+        return None
+    return ("拒绝：R18 相关功能默认关闭（包括主人）。"
+            "需要先到手机控制台「设置 → 更多设置」打开「深度抓图」。")
+
+
 def build_system_prompt(mode="normal"):
+    # 总开关关着 -> 一律按 normal 处理（不加载成人向提示词）
+    if not _r18_master_on():
+        mode = "normal"
     m = str(mode).lower()
     if m in ("r18", "auto", "e", "j", "both", "dual", "全部", "双源", "成人"):
         extra = AUTO_PROMPT
@@ -387,6 +408,9 @@ def _eh_get(url, referer=None, timeout=30):
 
 
 def t_eh_search(query, count=5):
+    _g = _r18_tool_guard("t_eh_search")
+    if _g:
+        return _g
     """Search e-hentai.org and return gallery titles + urls."""
     import re as _re
     import urllib.parse as _up
@@ -417,6 +441,9 @@ def t_eh_search(query, count=5):
 
 
 def t_eh_download(gallery_url, count=10, start=1, random_pick=False):
+    _g = _r18_tool_guard("t_eh_download")
+    if _g:
+        return _g
     """Download pages of an e-hentai gallery to EH_DIR.
 
     2026-10-27: 页面下载改成并发（4 并发，兼顾对方站点限流）；
@@ -594,6 +621,9 @@ def _is_bad(text):
 
 
 def t_jm_search(query, count=8):
+    _g = _r18_tool_guard("t_jm_search")
+    if _g:
+        return _g
     """Search jmcomic (禁漫天堂) and return album list."""
     try:
         client = _jm_client()
@@ -844,6 +874,9 @@ def t_jm_preview_stream(album_id, page=1, want=5, random_chapter=True):
 
 
 def t_jm_download(album_id, page=1, count=10, random_pick=False):
+    _g = _r18_tool_guard("t_jm_download")
+    if _g:
+        return _g
     """Download one chapter of a jmcomic album, return local image paths."""
     try:
         # 先查相册详情，命中黑名单（男同/福瑞/男娘/分尸）直接拒绝下载
