@@ -185,6 +185,20 @@ def _r18_master_on():
         return False
 
 
+_TURN_R18 = {"ok": False}
+
+
+def set_turn_r18(ok):
+    """每个回合开始时由 qq_bot 调用：本轮会话是否被授权使用成人图源。
+    总开关关着时永远是 False。"""
+    _TURN_R18["ok"] = bool(ok) and _r18_master_on()
+    return _TURN_R18["ok"]
+
+
+def turn_r18_ok():
+    return bool(_TURN_R18["ok"]) and _r18_master_on()
+
+
 def _r18_tool_guard(name):
     """成人向工具在深度抓图关闭时一律拒绝。"""
     if _r18_master_on():
@@ -378,15 +392,27 @@ AIBOT_DIR = "/data/data/com.termux/files/home/aibot"
 IMG_CACHE = "/sdcard/Pictures/大肥鱼图库"   # 与 prefetch.py 一致
 
 
-def _img_cache_pool():
-    """按当前模式取预取缓存：normal 只要 safe 池，r18 两池都要。"""
+def _img_cache_pool(allow_r18=None):
+    """预取图库取图。
+
+    安全第一：
+    - r18 池只有在「深度抓图总开关打开」且「当前会话被授权」时才进池
+    - 读不到状态时一律只给 safe 池（绝不 fail-open）
+    """
+    if allow_r18 is None:
+        allow_r18 = turn_r18_ok()
+    if allow_r18 and not _r18_master_on():
+        allow_r18 = False          # 双重确认，总开关永远最高优先级
+
     dirs = [os.path.join(IMG_CACHE, "safe")]
-    try:
-        with open(os.path.join(AIBOT_DIR, "mode.txt"), "r", encoding="utf-8") as f:
-            if f.read().strip().lower() != "normal":
-                dirs.append(os.path.join(IMG_CACHE, "r18"))
-    except Exception:
-        dirs.append(os.path.join(IMG_CACHE, "r18"))
+    if allow_r18:
+        try:
+            with open(os.path.join(AIBOT_DIR, "mode.txt"), "r", encoding="utf-8") as f:
+                if f.read().strip().lower() != "normal":
+                    dirs.append(os.path.join(IMG_CACHE, "r18"))
+        except Exception:
+            pass                   # 读不到模式 -> 保守：不加 r18
+    
     pool = []
     for d in dirs:
         try:

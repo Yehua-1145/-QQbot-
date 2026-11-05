@@ -1876,6 +1876,11 @@ def _process_one(item):
             _notify(ws, mtype, uid, item["group_id"], "⏳ 还在处理（下载/打包要一会儿）")
 
     threading.Thread(target=_heartbeat, daemon=True).start()
+    # 本轮是否允许成人图源：必须在 run_agent 之前设好，工具取图时会读
+    try:
+        agent.set_turn_r18(bool(mode == "r18" and has_adult))
+    except Exception:
+        pass
     try:
         reply = agent.run_agent(task, verbose=False, mode=mode, images=images_b64,
                                 restricted=(uid != OWNER_UID),
@@ -1902,6 +1907,10 @@ def _process_one(item):
     except Exception as e:
         reply = "(agent error: %s)" % e
     finally:
+        try:
+            agent.set_turn_r18(False)
+        except Exception:
+            pass
         hb_done.set()
 
     _audit(uid, mode, text, reply)
