@@ -2104,6 +2104,133 @@ def _take_pidfile(name):
     return None
 
 
+# ==================== 自动任务（定时执行） ====================
+_TASK_STATE = {}          # {task_id: 上次执行时间戳}
+
+
+def _tasks_load():
+    """读 config.json 里的 tasks 和上次执行时间。"""
+    try:
+        import json as _j
+        with open("/data/data/com.termux/files/home/aibot/config.json", encoding="utf-8") as f:
+            c = _j.load(f)
+        st = c.get("task_state") or {}
+        if isinstance(st, dict):
+            _TASK_STATE.clear()
+            _TASK_STATE.update({str(k): float(v) for k, v in st.items() if v})
+        return c.get("tasks") or []
+    except Exception:
+        return []
+
+
+def _task_state_save():
+    try:
+        import json as _j
+        p = "/data/data/com.termux/files/home/aibot/config.json"
+        with open(p, encoding="utf-8") as f:
+            c = _j.load(f)
+        c["task_state"] = _TASK_STATE
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            _j.dump(c, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, p)
+    except Exception as e:
+        log("task state save fail: %s" % e)
+
+
+def _task_due(t, now):
+    """判断这一刻该不该跑。"""
+    tid = str(t.get("id") or "")
+    last = _TASK_STATE.get(tid, 0.0)
+    if t.get("type") == "interval":
+        try:
+            every = max(5, int(t.get("every") or 60)) * 60
+        except Exception:
+            every = 3600
+        return (now - last) >= every, every
+    # 每天：只有同一分钟内才触发，且当天没跑过
+    at = str(t.get("at") or "08:00")[:5]
+    hhmm = time.strftime("%H:%M")
+    if hhmm != at:
+        return False, 0
+    day_start = time.mktime(time.localtime()[:3] + (0, 0, 0, 0, 0, -1))
+    return last < day_start, 0
+
+
+def _task_fire(t):
+    """执行一个任务。"""
+    action = t.get("action") or "prompt"
+    content = (t.get("content") or "").strip()
+    if not content:
+        return "内容为空"
+    if action == "shell":
+        try:
+            import subprocess as _sp
+            pr = _sp.run(["su", "-c", content], capture_output=True,
+                         text=True, timeout=120)
+            out = ((pr.stdout or "") + (pr.stderr or "")).strip()[:200]
+            log("task shell rc=%s out=%s" % (pr.returncode, out))
+            return "命令已执行（rc=%s）" % pr.returncode
+        except Exception as e:
+            log("task shell error: %s" % e)
+            return "命令失败: %s" % e
+
+    # prompt：让模型做完再发出去
+    reply = ""
+    try:
+        reply = agent.run_agent(content, verbose=False, mode="normal",
+                                images=None, restricted=False, adult=False,
+                                on_text=lambda t2: None, on_tool=None, history=[])
+    except Exception as e:
+        log("task agent error: %s" % e)
+        return "模型调用失败"
+    if not reply:
+        return "模型没有输出"
+
+    target = str(t.get("target") or "").strip()
+    ws = _WS
+    if not ws:
+        log("task skipped: ws 未连接")
+        return "机器人没连上 QQ"
+    if t.get("is_group") and target.isdigit():
+        _send_text(ws, "group", 0, int(target), reply, timeout=20)
+    elif target.isdigit():
+        _send_text(ws, "private", int(target), 0, reply, timeout=20)
+    else:
+        _send_text(ws, "private", OWNER_UID, 0, reply, timeout=20)
+    return "已发送"
+
+
+def _task_loop():
+    """每 20 秒看一次有没有到点的任务。"""
+    time.sleep(25)
+    while True:
+        try:
+            tasks = _tasks_load()
+            now = time.time()
+            changed = False
+            for t in tasks:
+                if not isinstance(t, dict) or t.get("on") is False:
+                    continue
+                due, _every = _task_due(t, now)
+                if not due:
+                    continue
+                tid = str(t.get("id") or "")
+                _TASK_STATE[tid] = now
+                changed = True
+                log("task fire: %s (%s)" % (tid, (t.get("content") or "")[:40]))
+                try:
+                    _task_fire(t)
+                except Exception as e:
+                    log("task fire error: %s" % e)
+            if changed:
+                _task_state_save()
+        except Exception as e:
+            log("task loop error: %s" % e)
+        time.sleep(20)
+
+
+
 def main():
     other = _take_pidfile("qq_bot")
     if other:
@@ -2116,6 +2243,8 @@ def main():
     log("worker threads started: %d (chunk interval %.1fs, max %d chunks)"
         % (max(1, WORKERS), REPLY_INTERVAL, MAX_CHUNKS))
     threading.Thread(target=_health_loop, daemon=True).start()
+    threading.Thread(target=_task_loop, daemon=True).start()
+    log("task loop started (每 20 秒检查一次自动任务)")
     log("health loop started (night ping at %s)" % NIGHT_PING)
     while True:
         try:

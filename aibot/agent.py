@@ -502,6 +502,15 @@ def t_ui_tap(text="", index=None, x=None, y=None):
         q = str(text).lower()
         hits = [n for n in nodes if q in (n["text"] + " " + n["desc"] + " " + n["id"]).lower()]
         if not hits:
+            # 界面可能还在动（滑动/动画），等一下再看一次
+            time.sleep(0.7)
+            raw2, err2 = _ui_dump_raw()
+            if not err2:
+                nodes = _ui_nodes(raw2)
+                nodes = [n for n in nodes if n.get("pkg") not in ("com.android.systemui",)]
+                hits = [n for n in nodes
+                        if q in (n["text"] + " " + n["desc"] + " " + n["id"]).lower()]
+        if not hits:
             cand = [n["text"] or n["desc"] or n["id"] for n in nodes if (n["text"] or n["desc"])][:12]
             return ("界面上没找到「%s」。当前可见的有：%s\n建议先 ui_dump 看一下。"
                     % (text, "、".join(cand)))

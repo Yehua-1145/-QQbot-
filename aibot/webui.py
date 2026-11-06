@@ -18,7 +18,7 @@ DEFAULT_PERSONA = """你叫「蓝色大肥鱼」，是主人的私人 AI 助手�
 回答简短直接，别端着，也别反复道歉。
 不懂就说不懂，不编造。"""
 
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 APP_DIR = "/data/data/com.termux/files/home/aibot"
 
 
@@ -1409,6 +1409,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(_update_info())
             return
 
+        if path == "/api/tasks":
+            cfg = _cfg_read()
+            return self._json({"tasks": cfg.get("tasks") or [],
+                               "owner": cfg.get("owner_uid") or 0})
+
         if path == "/api/backups":
             if not self._guard_dangerous():
                 return
@@ -1521,6 +1526,51 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 _cfg_write(cfg)
                 self._json({"ok": True})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)})
+            return
+
+        if path == "/api/tasks":
+            if not self._guard_dangerous():
+                return
+            import json as _j
+            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                body = _j.loads(self.rfile.read(n).decode("utf-8") or "{}")
+            except Exception as e:
+                self._json({"ok": False, "error": "解析失败: %s" % e})
+                return
+            tasks = body.get("tasks")
+            if not isinstance(tasks, list):
+                self._json({"ok": False, "msg": "tasks 必须是数组"})
+                return
+            clean = []
+            for i, t in enumerate(tasks[:20]):
+                if not isinstance(t, dict):
+                    continue
+                typ = "interval" if t.get("type") == "interval" else "daily"
+                act = "shell" if t.get("action") == "shell" else "prompt"
+                at = str(t.get("at") or "08:00")[:5]
+                try:
+                    every = max(5, min(int(t.get("every") or 60), 1440))
+                except Exception:
+                    every = 60
+                clean.append({
+                    "id": str(t.get("id") or ("t%d" % i)),
+                    "on": bool(t.get("on", True)),
+                    "type": typ,
+                    "at": at,
+                    "every": every,
+                    "action": act,
+                    "is_group": bool(t.get("is_group")),
+                    "target": str(t.get("target") or ""),
+                    "content": str(t.get("content") or "")[:2000],
+                })
+            cfg = _cfg_read()
+            cfg["tasks"] = clean
+            try:
+                _cfg_write(cfg)
+                self._json({"ok": True, "tasks": clean})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)})
             return
@@ -1877,6 +1927,9 @@ img.qr{width:230px;height:230px;background:#fff;border-radius:10px;display:block
 #personapage,#guidepage{position:fixed;inset:0;z-index:80;background:var(--bg);display:none;flex-direction:column;transform:translateX(100%);transition:transform .25s ease}
 #personapage.open,#guidepage.open{display:flex;transform:translateX(0)}
 #personapage textarea,#guidepage textarea{width:100%;box-sizing:border-box;min-height:200px;padding:12px;border-radius:10px;background:var(--input);border:1px solid var(--line);color:var(--fg);font-size:15px;line-height:1.6;font-family:inherit;resize:vertical}
+#taskpage{position:fixed;inset:0;z-index:80;background:var(--bg);display:none;
+  flex-direction:column;transform:translateX(100%);transition:transform .25s ease}
+#taskpage.open{display:flex;transform:translateX(0)}
 #morepage{position:fixed;inset:0;z-index:80;background:var(--bg);display:none;
   flex-direction:column;transform:translateX(100%);transition:transform .25s ease}
 #morepage.open{display:flex;transform:translateX(0)}
@@ -2067,6 +2120,12 @@ nav div b{display:block;font-size:17px;font-weight:400;margin-bottom:2px}
   </div>
 
   <div class="card">
+    <h2>自动任务</h2>
+    <div class="mini">定时让机器人自己干活：每天几点提醒、每隔多久查一次</div>
+    <div class="btns"><button onclick="openTasks()">进入自动任务 →</button></div>
+  </div>
+
+  <div class="card">
     <h2>更多设置</h2>
     <div class="mini">抓图模式、抓取范围等高级选项</div>
     <div class="btns"><button onclick="openMore()">进入更多设置 →</button></div>
@@ -2249,6 +2308,64 @@ nav div b{display:block;font-size:17px;font-weight:400;margin-bottom:2px}
         例：<br>
         「你叫阿七，是主人的助手。说话简短、直接，不用敬语。
         偶尔吐槽但不刻薄。称呼对方为『你』。不要写长篇大论。」
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 自动任务 -->
+<div id="taskpage">
+  <div class="fbhead">
+    <button class="back" onclick="closeTasks()">‹ 返回</button>
+    <b>自动任务</b>
+    <span style="width:64px"></span>
+  </div>
+  <div class="fbbody">
+    <div class="card" style="margin:0 0 12px">
+      <h2>现有任务</h2>
+      <div class="mini" style="margin-bottom:8px">关掉开关就暂停，删掉就没了。</div>
+      <div id="tasklist"><div class="mini">加载中…</div></div>
+    </div>
+
+    <div class="card" style="margin:0 0 12px">
+      <h2>新建任务</h2>
+      <div class="mini" style="margin-bottom:6px">什么时候</div>
+      <select id="ts-type" class="wl" style="min-height:44px">
+        <option value="daily">每天固定时间</option>
+        <option value="interval">每隔一段时间</option>
+      </select>
+      <div class="mini" style="margin:10px 0 4px">具体时间（每天，24 小时制）</div>
+      <input id="ts-at" class="wl" style="min-height:44px" placeholder="08:30"
+             inputmode="numeric" maxlength="5" autocomplete="off">
+      <div class="mini" style="margin:10px 0 4px">间隔分钟数（每隔）</div>
+      <input id="ts-every" class="wl" style="min-height:44px" placeholder="60" inputmode="numeric">
+
+      <div class="mini" style="margin:12px 0 4px">让它做什么</div>
+      <select id="ts-action" class="wl" style="min-height:44px">
+        <option value="prompt">让 AI 去做 / 说一句（会调用模型）</option>
+        <option value="shell">执行一条命令（有 root 才有效）</option>
+      </select>
+
+      <div class="mini" style="margin:12px 0 4px">发到哪（QQ 号或群号，留空=发给你自己）</div>
+      <input id="ts-target" class="wl" style="min-height:44px" placeholder="123456789" inputmode="numeric">
+      <label class="mini" style="display:flex;align-items:center;gap:8px;margin-top:8px">
+        <input type="checkbox" id="ts-group"> 这是群号（需要 @ 才发）
+      </label>
+
+      <div class="mini" style="margin:12px 0 4px">具体内容</div>
+      <textarea id="ts-content" class="wl" placeholder="例：今天有什么值得关注的科技新闻，挑一条说说 / 或 /system/bin/df -h"></textarea>
+
+      <div class="btns"><button onclick="addTask()">添加任务</button></div>
+      <div class="mini" id="tshint" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card" style="margin:0">
+      <h2>说明</h2>
+      <div class="mini">
+        · 任务由机器人进程执行，手机重启后要等机器人自己起来<br>
+        · 「每天」在同一天只会跑一次；「每隔」按上次执行时间算<br>
+        · 命令类任务出错不会通知，建议先用「让 AI 去做」试<br>
+        · 最多保存 20 个任务
       </div>
     </div>
   </div>
@@ -2835,6 +2952,111 @@ async function saveWhitelist(){
   });
   if(d.ok){ toast("白名单已保存"); loadWhitelist(); }
   else toast("保存失败");
+}
+
+/* ---------------- 自动任务 ---------------- */
+let _tasks = [];
+
+function openTasks(){
+  openOverlay("taskpage");
+  loadTasks();
+}
+function closeTasks(){ closeOverlay("taskpage"); }
+
+function _taskDesc(t){
+  const when = (t.type === "interval")
+    ? ("每 " + (t.every||60) + " 分钟")
+    : ("每天 " + (t.at || "08:00"));
+  const what = (t.action === "shell") ? "执行命令" : "让 AI 去做";
+  let to = t.target ? (t.is_group ? ("群 " + t.target) : ("QQ " + t.target)) : "发给我";
+  return when + " · " + what + " · " + to;
+}
+
+function renderTasks(){
+  const box = $("tasklist");
+  if(!box) return;
+  if(!_tasks.length){
+    box.innerHTML = '<div class="mini">还没有任务，下面新建一个。</div>';
+    return;
+  }
+  box.innerHTML = _tasks.map(function(t, i){
+    const on = t.on !== false;
+    const tag = on ? '<span class="tag ok">开着</span>' : '<span class="tag err">暂停</span>';
+    const txt = (t.content || "").replace(/[<>&]/g, function(c){
+      return {"<":"&lt;", ">":"&gt;", "&":"&amp;"}[c];
+    }).slice(0, 60);
+    return '<div class="card" style="margin:0 0 10px">' +
+      '<div class="row"><span>' + tag + ' ' + _taskDesc(t) + '</span></div>' +
+      '<div class="mini" style="margin:8px 0 10px">' + txt + '</div>' +
+      '<div class="btns">' +
+        '<button onclick="toggleTask(' + i + ')">' + (on ? "暂停" : "启用") + '</button>' +
+        '<button class="danger" onclick="delTask(' + i + ')">删除</button>' +
+      '</div></div>';
+  }).join("");
+}
+
+async function loadTasks(){
+  try{
+    const d = await jget("/api/tasks");
+    _tasks = d.tasks || [];
+    renderTasks();
+  }catch(e){
+    const box = $("tasklist");
+    if(box) box.innerHTML = '<div class="mini">读取失败：' + e + '</div>';
+  }
+}
+
+async function saveTasks(list){
+  try{
+    const d = await jpost("/api/tasks", { tasks: list });
+    if(d.ok){ _tasks = d.tasks || []; renderTasks(); return true; }
+    toast(d.msg || "保存失败");
+  }catch(e){ toast("保存失败"); }
+  return false;
+}
+
+function toggleTask(i){
+  const t = _tasks[i];
+  if(!t) return;
+  const list = _tasks.slice();
+  list[i] = Object.assign({}, t, { on: !(t.on !== false) });
+  saveTasks(list);
+}
+
+function delTask(i){
+  if(!confirm("删掉这个任务？")) return;
+  const list = _tasks.slice();
+  list.splice(i, 1);
+  saveTasks(list);
+}
+
+async function addTask(){
+  const type = ($("ts-type") && $("ts-type").value) || "daily";
+  const at = (($("ts-at") && $("ts-at").value) || "").trim() || "08:00";
+  const every = parseInt((($("ts-every") && $("ts-every").value) || "60"), 10) || 60;
+  const action = ($("ts-action") && $("ts-action").value) || "prompt";
+  const target = (($("ts-target") && $("ts-target").value) || "").trim();
+  const isGroup = !!($("ts-group") && $("ts-group").checked);
+  const content = (($("ts-content") && $("ts-content").value) || "").trim();
+  const hint = $("tshint");
+
+  if(!content){ if(hint) hint.textContent = "内容不能为空"; return; }
+  if(_tasks.length >= 20){ if(hint) hint.textContent = "最多 20 个任务"; return; }
+  if(target && !/^\d{5,12}$/.test(target)){
+    if(hint) hint.textContent = "QQ 号/群号要纯数字"; return;
+  }
+
+  const list = _tasks.slice();
+  list.push({
+    id: "t" + Date.now(), on: true, type: type, at: at, every: every,
+    action: action, is_group: isGroup, target: target, content: content
+  });
+  const ok = await saveTasks(list);
+  if(ok){
+    if(hint) hint.textContent = "已添加";
+    if($("ts-content")) $("ts-content").value = "";
+    toast("任务已添加");
+  }
 }
 
 function openMore(){
