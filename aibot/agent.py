@@ -189,6 +189,12 @@ UI_GUIDE = """
 - 不确定界面长什么样就先 ui_dump，一次只做一个动作
 - 涉及付款、删除、给别人发消息，先问用户确认
 - 这一步没成功就老实说没做成，不要假装点了
+
+读不到控件时的兜底：
+- ui_dump 返回「已自动改用 OCR」说明这是 WebView/游戏/图片界面，接着用 ocr_tap
+- 找文字找不到、又要翻列表：用 ocr_find（会自动滑屏找）
+- 游戏加载慢或界面在动：用 ocr_wait 等目标文字出现，不要硬点
+- 纯图标按钮（返回、齿轮、加号）：用 icon_tap，模板在 aibot/icons/
 """
 
 
@@ -708,8 +714,8 @@ def t_ocr_screen(lang="chi_sim+eng", limit=40, query=""):
         return "(OCR 没识别出文字，屏幕可能是纯图标或纯色)"
 
     if query:
-        q = str(query).lower()
-        items = [t for t in items if q in t[0].lower()]
+        q = _norm_txt(query)
+        items = [t for t in items if q in _norm_txt(t[0])]
 
     total = len(items)
     items = items[:max(1, min(int(limit or 40), 60))]
@@ -719,17 +725,152 @@ def t_ocr_screen(lang="chi_sim+eng", limit=40, query=""):
     return "\n".join(lines)
 
 
+# ---------- 三处补强：中文空格 / 动态界面 / 纯图标 ----------
+def _norm_txt(t):
+    """去掉所有空白，解决 OCR 把「模型 状态」拆开的问题。"""
+    import re as _r
+    return _r.sub(r"\s+", "", str(t or "")).lower()
+
+
+def _ocr_words2(frames=1, gap=0.45, lang="chi_sim+eng", min_conf=50):
+    """多帧 OCR 取并集：应对动画、加载中、闪烁的界面。"""
+    got = []
+    for i in range(max(1, int(frames))):
+        words, err = _ocr_words(lang, min_conf)
+        if err:
+            return None, err
+        got.extend(words or [])
+        if i + 1 < frames:
+            time.sleep(gap)
+    # 按 (文字, 大致位置) 去重
+    seen, out = set(), []
+    for w, x, y in got:
+        key = (_norm_txt(w), x // 24, y // 24)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((w, x, y))
+    return out, None
+
+
+def t_ocr_wait(text, timeout=15, frames=1):
+    """等某个文字出现（OCR 版 ui_wait）：游戏加载、动画结束后再判断。"""
+    q = _norm_txt(text)
+    if not q:
+        return "需要一个要等的文字"
+    end = time.time() + max(2, min(float(timeout or 15), 60))
+    while time.time() < end:
+        words, err = _ocr_words2(frames=max(1, int(frames)))
+        if not err and words:
+            if any(q in _norm_txt(w[0]) for w in words):
+                return "「%s」已出现" % text
+        time.sleep(1.0)
+    return "等了 %.0f 秒没等到「%s」" % (float(timeout or 15), text)
+
+
+def t_ocr_find(text, scroll=True, max_swipes=6, direction="up"):
+    """在界面里找文字；找不到就一屏屏滑下去找（列表/长页面用）。"""
+    q = _norm_txt(text)
+    if not q:
+        return "需要一个要找的文字"
+    for attempt in range(max(0, int(max_swipes)) + 1):
+        words, err = _ocr_words2(frames=1)
+        if err:
+            return "(OCR 不可用) " + str(err)
+        hits = [(w, x, y) for w, x, y in (words or []) if q in _norm_txt(w)]
+        if hits:
+            w, x, y = hits[0]
+            return "找到「%s」@(%d,%d)%s" % (w, x, y,
+                                          "" if attempt == 0 else "（滑了 %d 屏）" % attempt)
+        if not scroll or attempt >= int(max_swipes):
+            break
+        t_ui_swipe(direction, 600)
+        time.sleep(0.8)
+    return "滑了 %d 屏也没找到「%s」" % (int(max_swipes), text)
+
+
+def t_icon_tap(name, threshold=0.86):
+    """按图标模板找位置再点（纯图标按钮用）。
+
+    模板放在 aibot/icons/<name>.png，用截图裁剪出按钮即可。
+    """
+    try:
+        import numpy as _np
+        from PIL import Image as _Img
+    except Exception as e:
+        return "(缺少 numpy/PIL，图标识别不可用) %s" % e
+
+    path = os.path.join(AIBOT_DIR, "icons", str(name))
+    if not os.path.isfile(path):
+        for ext in (".png", ".jpg", ".jpeg"):
+            cand = os.path.join(AIBOT_DIR, "icons", str(name) + ext)
+            if os.path.isfile(cand):
+                path = cand
+                break
+    if not os.path.isfile(path):
+        return ("没找到图标模板：%s\n把按钮截图存到 aibot/icons/ 下面再试" % path)
+
+    for cmd in ("rm -f " + OCR_IMG,
+                "env -u LD_LIBRARY_PATH screencap -p " + OCR_IMG):
+        try:
+            sh(cmd, timeout=40)
+        except Exception:
+            pass
+    if not os.path.isfile(OCR_IMG):
+        return "截图失败"
+
+    try:
+        shot = _Img.open(OCR_IMG).convert("L")
+        tpl = _Img.open(path).convert("L")
+    except Exception as e:
+        return "读图失败: %s" % e
+
+    tw, th = tpl.size
+    if tw >= shot.width or th >= shot.height:
+        return "模板比屏幕还大，裁小一点"
+
+    # 降采样加速：宽度缩到 1/3
+    sc = 3
+    small = shot.resize((shot.width // sc, shot.height // sc), _Img.BILINEAR)
+    stpl = tpl.resize((max(4, tw // sc), max(4, th // sc)), _Img.BILINEAR)
+
+    A = _np.asarray(small, dtype=_np.float32)
+    T = _np.asarray(stpl, dtype=_np.float32)
+    th2, tw2 = T.shape
+    best, bx, by = 1e18, 0, 0
+    step = 2
+    for y in range(0, A.shape[0] - th2, step):
+        for x in range(0, A.shape[1] - tw2, step):
+            d = _np.abs(A[y:y + th2, x:x + tw2] - T).mean()
+            if d < best:
+                best, bx, by = d, x, y
+    score = 1.0 - (best / 255.0)
+    if score < float(threshold):
+        return "没匹配上（最高相似度 %.2f，阈值 %.2f）" % (score, float(threshold))
+
+    cx = int((bx + tw2 / 2) * sc)
+    cy = int((by + th2 / 2) * sc)
+    sh("input tap %d %d" % (cx, cy), timeout=15)
+    return "已点击图标「%s」@(%d,%d)（相似度 %.2f）" % (name, cx, cy, score)
+
+
+
 def t_ocr_tap(text, index=0):
     """在 OCR 结果里按文字点击（给拍不到控件的地方用）。先按词匹配，命中更准。"""
     words, werr = _ocr_words()
     if not werr and words:
-        q = str(text or "").lower().strip()
-        hits = [w for w in words if q and (q in w[0].lower())]
+        q = _norm_txt(text)
+        hits = [w for w in words if q and (q in _norm_txt(w[0]))]
         if hits:
             k = int(index or 0)
             w, x, y = hits[k] if k < len(hits) else hits[0]
             sh("input tap %d %d" % (x, y), timeout=15)
             return "已点击「%s」@(%d,%d)（OCR 词定位）" % (w, x, y)
+
+    # OCR 也没找到 -> 再退回控件树试试（两边互补）
+    ui = t_ui_tap(text, index)
+    if '界面上没找到' not in (ui or ''):
+        return ui
 
     items, err = _ocr_screen(limit=60)
     if err:
@@ -1738,6 +1879,28 @@ TOOLS_SPEC = [
             "index": {"type": "integer"}},
             "required": ["text"]}}},
     {"type": "function", "function": {
+        "name": "ocr_wait",
+        "description": "等某段文字出现在屏幕上（OCR 版等待），用于游戏加载、动画结束。",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string"},
+            "timeout": {"type": "number", "description": "最多等几秒，默认 15"}},
+            "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "ocr_find",
+        "description": "在屏幕里找文字，找不到会自动一屏屏滑动继续找（长列表用）。",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string"},
+            "scroll": {"type": "boolean", "description": "要不要边滑边找，默认 true"},
+            "max_swipes": {"type": "integer", "description": "最多滑几屏，默认 6"}},
+            "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "icon_tap",
+        "description": "按图标模板点击（纯图标按钮没有文字时用）。模板放 aibot/icons/<name>.png。",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "模板文件名，如 back.png"},
+            "threshold": {"type": "number", "description": "相似度阈值，默认 0.86"}},
+            "required": ["name"]}}},
+    {"type": "function", "function": {
         "name": "ui_dump",
         "description": "读取当前手机界面：返回可识别的文字控件和它们的坐标。操作任何 App 前先调这个，看清有什么再点。",
         "parameters": {"type": "object", "properties": {
@@ -1927,6 +2090,13 @@ def execute_tool(name, a):
                                 int(a.get("limit", 40)), a.get("query", ""))
         if name == "ocr_tap":
             return t_ocr_tap(a.get("text", ""), int(a.get("index", 0)))
+        if name == "ocr_wait":
+            return t_ocr_wait(a.get("text", ""), a.get("timeout", 15))
+        if name == "ocr_find":
+            return t_ocr_find(a.get("text", ""), bool(a.get("scroll", True)),
+                              int(a.get("max_swipes", 6)))
+        if name == "icon_tap":
+            return t_icon_tap(a.get("name", ""), float(a.get("threshold", 0.86)))
         if name == "ui_dump":
             return t_ui_dump(a.get("query", ""), int(a.get("limit", 40)),
                              bool(a.get("clickable_only", False)))
