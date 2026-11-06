@@ -18,7 +18,7 @@ DEFAULT_PERSONA = """你叫「蓝色大肥鱼」，是主人的私人 AI 助手�
 回答简短直接，别端着，也别反复道歉。
 不懂就说不懂，不编造。"""
 
-VERSION = "1.0.5"
+VERSION = "1.1"
 APP_DIR = "/data/data/com.termux/files/home/aibot"
 
 
@@ -2385,11 +2385,14 @@ nav div b{display:block;font-size:17px;font-weight:400;margin-bottom:2px}
       <label class="mini" style="display:flex;align-items:center;gap:8px;margin-top:8px">
         <input type="checkbox" id="ts-group"> 这是群号（需要 @ 才发）
       </label>
+      <label class="mini" style="display:flex;align-items:center;gap:8px;margin-top:6px">
+        <input type="checkbox" id="ts-sendout"> 命令类任务：把输出发给我
+      </label>
 
       <div class="mini" style="margin:12px 0 4px">具体内容</div>
       <textarea id="ts-content" class="wl" placeholder="例：今天有什么值得关注的科技新闻，挑一条说说 / 或 /system/bin/df -h"></textarea>
 
-      <div class="btns"><button onclick="addTask()">添加任务</button></div>
+      <div class="btns"><button id="ts-submit" onclick="addTask()">添加任务</button></div>
       <div class="mini" id="tshint" style="margin-top:8px"></div>
     </div>
 
@@ -3059,10 +3062,11 @@ function renderTasks(){
       '<div class="mini" style="margin:8px 0 6px">' + txt + '</div>' +
       '<div class="mini" style="margin:0 0 10px;color:#6e7781">' + lastTxt +
         (on ? ("　·　" + _nextRun(t)) : "") + '</div>' +
-            '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
-        '<button style="width:100%;height:46px;padding:0;font-size:14px;box-sizing:border-box;line-height:1" onclick="runTask(' + i + ')">立即执行</button>' +
-        '<button style="width:100%;height:46px;padding:0;font-size:14px;box-sizing:border-box;line-height:1" onclick="toggleTask(' + i + ')">' + (on ? "暂停" : "启用") + '</button>' +
-        '<button style="width:100%;height:46px;padding:0;font-size:14px;box-sizing:border-box;line-height:1;background:#3d1b1b;color:#ffb4b4" onclick="delTask(' + i + ')">删除</button>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">' +
+        '<button style="width:100%;height:46px;padding:0;font-size:13px;box-sizing:border-box;line-height:1" onclick="runTask(' + i + ')">执行</button>' +
+        '<button style="width:100%;height:46px;padding:0;font-size:13px;box-sizing:border-box;line-height:1" onclick="editTask(' + i + ')">编辑</button>' +
+        '<button style="width:100%;height:46px;padding:0;font-size:13px;box-sizing:border-box;line-height:1" onclick="toggleTask(' + i + ')">' + (on ? "暂停" : "启用") + '</button>' +
+        '<button style="width:100%;height:46px;padding:0;font-size:13px;box-sizing:border-box;line-height:1;background:#3d1b1b;color:#ffb4b4" onclick="delTask(' + i + ')">删除</button>' +
       '</div></div>';
   }).join("");
 }
@@ -3118,6 +3122,33 @@ function delTask(i){
   saveTasks(list);
 }
 
+let _editId = null;
+
+function editTask(i){
+  const t = _tasks[i];
+  if(!t) return;
+  _editId = t.id;
+  const set = function(id, v){ const el = $(id); if(el) el.value = v; };
+  set("ts-type", t.type || "daily");
+  set("ts-at", t.at || "08:30");
+  set("ts-every", t.every || 60);
+  set("ts-action", t.action || "prompt");
+  set("ts-target", t.target || "");
+  set("ts-content", t.content || "");
+  const g = $("ts-group"); if(g) g.checked = !!t.is_group;
+  const out = $("ts-sendout"); if(out) out.checked = !!t.send_out;
+  const b = $("ts-submit"); if(b) b.textContent = "保存修改";
+  const h = $("tshint"); if(h) h.textContent = "正在编辑已有任务，改完点「保存修改」";
+  toast("已载入，往下看表单");
+}
+
+function _resetForm(){
+  _editId = null;
+  const b = $("ts-submit"); if(b) b.textContent = "添加任务";
+  const h = $("tshint"); if(h) h.textContent = "";
+  const c = $("ts-content"); if(c) c.value = "";
+}
+
 async function addTask(){
   const type = ($("ts-type") && $("ts-type").value) || "daily";
   const at = (($("ts-at") && $("ts-at").value) || "").trim() || "08:00";
@@ -3134,16 +3165,25 @@ async function addTask(){
     if(hint) hint.textContent = "QQ 号/群号要纯数字"; return;
   }
 
-  const list = _tasks.slice();
-  list.push({
-    id: "t" + Date.now(), on: true, type: type, at: at, every: every,
-    action: action, is_group: isGroup, target: target, content: content
-  });
+  const sendOut = !!($("ts-sendout") && $("ts-sendout").checked);
+  const item = {
+    id: _editId || ("t" + Date.now()), on: true, type: type, at: at, every: every,
+    action: action, is_group: isGroup, target: target, content: content,
+    send_out: sendOut
+  };
+  let list;
+  if(_editId){
+    list = _tasks.map(function(t){ return t.id === _editId ? item : t; });
+  }else{
+    list = _tasks.slice();
+    list.push(item);
+  }
+  const editing = !!_editId;
   const ok = await saveTasks(list);
   if(ok){
-    if(hint) hint.textContent = "已添加";
-    if($("ts-content")) $("ts-content").value = "";
-    toast("任务已添加");
+    if(hint) hint.textContent = editing ? "已保存修改" : "已添加";
+    _resetForm();
+    toast(editing ? "已保存修改" : "任务已添加");
   }
 }
 

@@ -2168,8 +2168,24 @@ def _task_fire(t):
             import subprocess as _sp
             pr = _sp.run(["su", "-c", content], capture_output=True,
                          text=True, timeout=120)
-            out = ((pr.stdout or "") + (pr.stderr or "")).strip()[:200]
-            log("task shell rc=%s out=%s" % (pr.returncode, out))
+            out = ((pr.stdout or "") + (pr.stderr or "")).strip()
+            log("task shell rc=%s out=%s" % (pr.returncode, out[:200]))
+
+            # 勾了「把输出发给我」就把结果发出去
+            if t.get("send_out") and out:
+                ws = _WS
+                target = str(t.get("target") or "").strip()
+                body = "⏱ 自动任务输出\n" + out[:1800]
+                if ws:
+                    try:
+                        if t.get("is_group") and target.isdigit():
+                            _send_text(ws, "group", 0, int(target), body, timeout=20)
+                        elif target.isdigit():
+                            _send_text(ws, "private", int(target), 0, body, timeout=20)
+                        else:
+                            _send_text(ws, "private", OWNER_UID, 0, body, timeout=20)
+                    except Exception as e:
+                        log("task send_out fail: %s" % e)
             return "命令已执行（rc=%s）" % pr.returncode
         except Exception as e:
             log("task shell error: %s" % e)
