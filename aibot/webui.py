@@ -2564,8 +2564,25 @@ document.querySelectorAll("nav div").forEach(d=>{
   };
 });
 
-async function jget(u){const r=await fetch(u+(u.includes("?")?"&":"?")+"token="+T,{cache:"no-store"});return r.json()}
-async function jpost(u,b){const r=await fetch(u+"?token="+T,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})});return r.json()}
+async function jget(u){
+  const ctl = new AbortController();
+  const to = setTimeout(function(){ ctl.abort(); }, 8000);
+  try{
+    const r = await fetch(u+(u.includes("?")?"&":"?")+"token="+T,
+                           {cache:"no-store", signal: ctl.signal});
+    return await r.json();
+  } finally { clearTimeout(to); }
+}
+async function jpost(u,b){
+  const ctl = new AbortController();
+  const to = setTimeout(function(){ ctl.abort(); }, 20000);
+  try{
+    const r = await fetch(u+"?token="+T,{method:"POST",
+      headers:{"Content-Type":"application/json", "X-Token": T},
+      body:JSON.stringify(b||{}), signal: ctl.signal});
+    return await r.json();
+  } finally { clearTimeout(to); }
+}
 
 /* ---------------- 聊天 ---------------- */
 let busy=false;
@@ -2950,16 +2967,42 @@ function lockBody(on){
     else { document.body.style.overflow = ""; window.scrollTo(0, window._scrollY || 0); }
   }catch(e){}
 }
+let _ovStack = [];
 function openOverlay(id){
   var el = typeof id === "string" ? $(id) : id;
-  if(el){ el.classList.add("open"); lockBody(true); }
-  var body = el ? el.querySelector(".fbbody") : null;
+  if(!el) return;
+  var name = (typeof id === "string") ? id : (el.id || "");
+  if(el.classList.contains("open")) return;
+  el.classList.add("open");
+  lockBody(true);
+  var body = el.querySelector(".fbbody");
   if(body) body.scrollTop = 0;
+  _ovStack.push(name);
+  try{ history.pushState({ov: name}, ""); }catch(e){}
 }
+
+function _closeTopOverlay(){
+  var name = _ovStack.pop();
+  if(!name) return false;
+  var el = $(name);
+  if(el) el.classList.remove("open");
+  if(!_ovStack.length) lockBody(false);
+  resetScrollTop();
+  return true;
+}
+
+// 安卓返回键 / 侧滑返回：优先关浮层，而不是退出 App
+window.addEventListener("popstate", function(){
+  if(_ovStack.length){
+    _closeTopOverlay();
+  }
+});
 function closeOverlay(id){
   var el = typeof id === "string" ? $(id) : id;
   if(el){ el.classList.remove("open"); }
-  lockBody(false);
+  var name = (typeof id === "string") ? id : (el ? el.id : "");
+  _ovStack = _ovStack.filter(function(x){ return x !== name; });
+  if(!_ovStack.length) lockBody(false);
   resetScrollTop();
 }
 
@@ -3094,7 +3137,11 @@ async function loadTasks(){
     renderTasks();
   }catch(e){
     const box = $("tasklist");
-    if(box) box.innerHTML = '<div class="mini">读取失败：' + e + '</div>';
+    if(box) box.innerHTML =
+      '<div class="mini">读取失败（' + e + '）</div>' +
+      '<div class="btns" style="margin-top:10px">' +
+        '<button onclick="loadTasks()">重试</button>' +
+      '</div>';
   }
 }
 
