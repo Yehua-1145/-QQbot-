@@ -1,6 +1,6 @@
 # Botagent
 
-[![Release](https://img.shields.io/badge/release-v1.0.3-2ea043?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/releases/latest)
+[![Release](https://img.shields.io/badge/release-v1.0.4-2ea043?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/releases/latest)
 [![Platform](https://img.shields.io/badge/Android-7.0%2B-3DDC84?style=flat-square&logo=android)](https://github.com/Yehua-1145/-QQbot-)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/blob/main/LICENSE)
 
@@ -24,8 +24,8 @@ QQ 消息 → NapCat（QQ 协议端）→ 你的大模型 → 回复
 下载后解压，进 `Windows一键部署` 目录，双击 `BotagentDeploy.exe` 即可。
 
 ```text
-Botagent-v1.0.3.zip        16.85 MB
-SHA256  860849A1B9E6AF75A5C09E25604A756FAEAD6A7D964965D4F31FC3D7B6DCC742
+Botagent-v1.0.4.zip        18.52 MB
+SHA256  E0075A6E1F4A2A478B984647F5EA3544231C597FEC390F89D6E7D92FB73077D2
 ```
 
 ---

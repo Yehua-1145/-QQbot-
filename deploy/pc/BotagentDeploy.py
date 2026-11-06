@@ -375,6 +375,100 @@ class Deployer:
         rc, out, err = self.shell(cmd, serial=serial, root=root, timeout=60)
         return rc == 0
 
+    # ---------------- OCR 依赖（tesseract + 中文包 + numpy） ----------------
+    def _termux_type(self, serial, words, wait_enter=1.0):
+        """在 Termux 里逐词输入一条命令（空格用 keyevent 62，避开 %s 的坑）。"""
+        import time as _t
+        self.run(["shell", "am", "start", "-n", "com.termux/.app.TermuxActivity"],
+                 serial=serial, timeout=20)
+        _t.sleep(2.0)
+        first = True
+        for w in words:
+            if not first:
+                self.run(["shell", "input", "keyevent", "62"], serial=serial, timeout=10)
+            self.run(["shell", "input", "text", str(w)], serial=serial, timeout=15)
+            first = False
+        _t.sleep(wait_enter)
+        self.run(["shell", "input", "keyevent", "66"], serial=serial, timeout=10)
+
+    def _asset(self, name):
+        """在程序目录 / PyInstaller 解包目录里找一个随包文件。"""
+        import os as _os
+        import sys as _sys
+        cands = []
+        try:
+            cands.append(_os.path.join(_os.path.dirname(_os.path.abspath(_sys.argv[0])), name))
+        except Exception:
+            pass
+        try:
+            cands.append(_os.path.join(getattr(_sys, "_MEIPASS", ""), name))
+        except Exception:
+            pass
+        cands.append(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), name))
+        for c in cands:
+            if c and _os.path.isfile(c):
+                return c
+        return ""
+
+
+    def ocr_ready(self, serial):
+        rc, out, _ = self.shell(
+            "ls /data/data/com.termux/files/usr/bin/tesseract 2>/dev/null",
+            serial=serial, root=True, timeout=20)
+        return "tesseract" in (out or "")
+
+    def install_ocr_deps(self, serial, log=None, timeout=260):
+        """装 OCR 依赖：tesseract + 中文语言包 + python-numpy。已装则跳过。"""
+        import os as _os
+        import time as _t
+
+        steps = []
+
+        def step(name, ok, err=""):
+            steps.append((name, ok, err))
+            if log:
+                log(name, ok, err)
+
+        if self.ocr_ready(serial):
+            step("tesseract 已安装", True, "")
+        else:
+            if log:
+                log("正在装 tesseract / numpy（约 1~3 分钟，别拔线）", "info")
+            self._termux_type(serial, ["pkg", "install", "-y", "tesseract", "python-numpy"])
+            ok = False
+            deadline = _t.time() + timeout
+            while _t.time() < deadline:
+                _t.sleep(10)
+                if self.ocr_ready(serial):
+                    ok = True
+                    break
+            step("安装 tesseract + numpy", ok,
+                 "" if ok else "超时未完成；可在 Termux 里手动执行 pkg install -y tesseract python-numpy")
+
+        # 中文语言包（随包附带，2.4 MB）
+        data = None
+        for cand in (self._asset("chi_sim.traineddata"),
+                     _os.path.join(_os.path.dirname(__file__), "chi_sim.traineddata")):
+            if cand and _os.path.isfile(cand):
+                data = cand
+                break
+        if not data:
+            step("中文语言包", False, "包里没有 chi_sim.traineddata，OCR 只能认英文")
+            return steps
+
+        self.run(["push", data, "/sdcard/chi_sim.traineddata"], serial=serial, timeout=120)
+        # 不要用 shell 变量：su -c 的引号会把 $D 吃掉
+        TD = "/data/data/com.termux/files/usr/share/tessdata"
+        cmd = ("mkdir -p " + TD +
+               "; cp -f /sdcard/chi_sim.traineddata " + TD + "/" +
+               "; chmod 644 " + TD + "/chi_sim.traineddata" +
+               "; ls " + TD)
+
+        rc, out, err = self.shell(cmd, serial=serial, root=True, timeout=60)
+        step("安装中文语言包", "chi_sim" in (out or ""), err)
+        return steps
+
+
     def uninstall(self, serial, purge=False, with_proot=False, root=None):
         """一键卸载。有 root 直接删；无 root 走 Termux 界面自动化，全自动完成。"""
         import time as _t
@@ -693,6 +787,8 @@ class App:
         tk.Button(bot, text="一键卸载", width=10, fg="#c0392b", command=self.uninstall).pack(side="left", padx=6)
         tk.Button(bot, text="装控制台App", width=12, bg="#1f6feb", fg="white",
                   command=self.install_console).pack(side="left")
+        tk.Button(bot, text="装OCR依赖", width=12, bg="#6e5494", fg="white",
+                  command=self.install_ocr).pack(side="left", padx=6)
         tk.Button(bot, text="保存日志", width=10, command=self.save_log).pack(side="right")
 
         self.pb = ttk.Progressbar(self.root, mode="determinate")
@@ -915,6 +1011,21 @@ class App:
                 tip += "\n\n手机控制台 App 也装好了，桌面上多了个 Botagent 图标。"
             else:
                 tip += "\n\n控制台 App 没装上：%s\n（不影响使用，浏览器也能进）" % (app_msg or "未知原因")
+            # 顺手装 OCR 依赖（失败不影响主功能）
+            try:
+                self.log("顺便装 OCR 依赖（让 AI 能读 WebView/游戏界面）", "info")
+                ocr_steps = self.d.install_ocr_deps(
+                    self.serial, log=lambda m, ok=True, e="": self.log(
+                        "  " + str(m), "ok" if ok else "warn"))
+                bad = [n for n, ok, _ in ocr_steps if not ok]
+                if bad:
+                    self.log("OCR 有些没装上：%s（不影响聊天，可用「装OCR依赖」按钮重试）"
+                             % "、".join(bad), "warn")
+                else:
+                    self.log("OCR 依赖已就绪", "ok")
+            except Exception as e:
+                self.log("OCR 依赖安装跳过：%s" % e, "warn")
+
             messagebox.showinfo("部署完成", tip)
         else:
             messagebox.showwarning("部分步骤失败", "看日志里的红色行。")
@@ -923,6 +1034,42 @@ class App:
         self.pb["maximum"] = n
         self.pb["value"] = i
         self.log("推 %d/%d %s" % (i, n, name))
+
+
+    def install_ocr(self):
+        """装 OCR 依赖（tesseract + 中文包 + numpy），让 AI 能读 WebView/游戏界面。"""
+        if self.busy:
+            return
+        if not self.d.adb:
+            messagebox.showerror("缺少 adb", "没找到 adb.exe。")
+            return
+        self.scan()
+        if not self.serial:
+            messagebox.showerror("没有设备", "请先连接手机。")
+            return
+        self.busy = True
+        self.btn_go.config(state="disabled")
+
+        def work():
+            try:
+                self.log("开始安装 OCR 依赖（tesseract + 中文包 + numpy）", "info")
+                steps = self.d.install_ocr_deps(self.serial,
+                                                log=lambda n, ok, e="": self.log(
+                                                    "%s %s" % (n, "✓" if ok else "✗ " + (e or "")),
+                                                    "ok" if ok else "err"))
+                ok_all = all(ok for _, ok, _ in steps)
+                if ok_all:
+                    messagebox.showinfo("完成", "OCR 依赖已就绪，\nAI 现在能读 WebView / 游戏界面了。")
+                else:
+                    messagebox.showwarning("部分失败", "看日志里的红字；也可以在 Termux 里手动跑：\n"
+                                           "pkg install -y tesseract python-numpy")
+            except Exception as e:
+                self.log("安装 OCR 出错：%s" % e, "err")
+            finally:
+                self.busy = False
+                self.btn_go.config(state="normal")
+
+        threading.Thread(target=work, daemon=True).start()
 
 
     def uninstall(self):

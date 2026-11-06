@@ -18,7 +18,7 @@ DEFAULT_PERSONA = """你叫「蓝色大肥鱼」，是主人的私人 AI 助手�
 回答简短直接，别端着，也别反复道歉。
 不懂就说不懂，不编造。"""
 
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 APP_DIR = "/data/data/com.termux/files/home/aibot"
 
 

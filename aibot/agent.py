@@ -194,7 +194,8 @@ UI_GUIDE = """
 - ui_dump 返回「已自动改用 OCR」说明这是 WebView/游戏/图片界面，接着用 ocr_tap
 - 找文字找不到、又要翻列表：用 ocr_find（会自动滑屏找）
 - 游戏加载慢或界面在动：用 ocr_wait 等目标文字出现，不要硬点
-- 纯图标按钮（返回、齿轮、加号）：用 icon_tap，模板在 aibot/icons/
+- 纯图标按钮（返回、齿轮、加号）：用 icon_save 存模板后 icon_tap
+- 连文字和图标都认不出（游戏画面）：用 see 把截图交给视觉模型
 """
 
 
@@ -814,13 +815,14 @@ def _edge(a):
     return gx + gy
 
 
-def _icon_match(shot, tpl, scales=(0.9, 1.0, 1.15), ds=4, block=64):
-    """多尺度归一化互相关（边缘图上做），返回 (score, x, y, scale)。"""
+def _ncc(shot, tpl, scales, ds, block=64, use_edge=False):
+    """归一化互相关搜索：返回 (score, x, y, scale)。"""
     import numpy as _np
     from PIL import Image as _Img
     from numpy.lib.stride_tricks import sliding_window_view as _swv
 
-    A = _edge(shot[::ds, ::ds])
+    base = shot[::ds, ::ds]
+    A = _edge(base) if use_edge else base
     best = (-1.0, 0, 0, 1.0)
     for sc in scales:
         w = max(6, int(tpl.shape[1] * sc / ds))
@@ -829,7 +831,8 @@ def _icon_match(shot, tpl, scales=(0.9, 1.0, 1.15), ds=4, block=64):
             continue
         T = _np.asarray(_Img.fromarray(tpl.astype(_np.uint8)).resize((w, h), _Img.BILINEAR),
                         dtype=_np.float32)
-        T = _edge(T)
+        if use_edge:
+            T = _edge(T)
         T0 = T - T.mean()
         tn = _np.sqrt((T0 ** 2).sum()) + 1e-6
         rows = A.shape[0] - h + 1
@@ -848,6 +851,18 @@ def _icon_match(shot, tpl, scales=(0.9, 1.0, 1.15), ds=4, block=64):
     return best
 
 
+def _icon_match(shot, tpl, ds=6):
+    """灰度 NCC 为主（同界面区分度高），不够再补边缘 NCC（换主题/夜间模式）。"""
+    scales = (0.92, 1.0, 1.08)
+    g = _ncc(shot, tpl, scales, ds, use_edge=False)
+    if g[0] >= 0.55:
+        return g + ("灰度",)
+    e = _ncc(shot, tpl, scales, ds, use_edge=True)
+    if e[0] > g[0]:
+        return e + ("边缘",)
+    return g + ("灰度",)
+
+
 def _icon_files(name):
     d = os.path.join(AIBOT_DIR, "icons")
     if not os.path.isdir(d):
@@ -862,6 +877,80 @@ def _icon_files(name):
         if stem == base or stem.startswith(base + "_"):
             out.append(os.path.join(d, f))
     return out
+
+
+# ==================== 视觉模型（纯图形界面的最后兜底） ====================
+def _vision_cfg():
+    """vision_model / vision_base_url / vision_api_key，缺省回落主配置。"""
+    try:
+        import json as _json
+        with open(os.path.join(AIBOT_DIR, "config.json"), encoding="utf-8") as f:
+            c = _json.load(f)
+    except Exception:
+        c = {}
+    return ((c.get("vision_model") or "").strip(),
+            (c.get("vision_base_url") or c.get("base_url") or "").strip().rstrip("/"),
+            (c.get("vision_api_key") or c.get("api_key") or "").strip())
+
+
+def t_see(question="屏幕上有什么？关键按钮在哪？", max_side=1024):
+    """把屏幕截图发给视觉模型描述界面，用于纯图形/游戏界面。"""
+    import base64 as _b64
+    import io as _io
+    import json as _json
+    import urllib.request as _req
+
+    model, base, key = _vision_cfg()
+    if not model:
+        return ("没配视觉模型。在 config.json 里加：\n"
+                '  "vision_model": "qwen-vl-plus"   （或 gpt-4o / glm-4v）\n'
+                '  "vision_base_url": "https://..." （可省，默认用 base_url）\n'
+                '  "vision_api_key": "..."          （可省，默认用 api_key）')
+
+    shot, err = _shot_gray()
+    if err:
+        return err
+
+    try:
+        from PIL import Image as _Img
+        im = _Img.open(OCR_IMG).convert("RGB")
+        w, h = im.size
+        if max(w, h) > max_side:
+            r = max_side / float(max(w, h))
+            im = im.resize((int(w * r), int(h * r)), _Img.BILINEAR)
+        buf = _io.BytesIO()
+        im.save(buf, format="JPEG", quality=82)
+        b64 = _b64.b64encode(buf.getvalue()).decode()
+    except Exception as e:
+        return "截图编码失败: %s" % e
+
+    body = {
+        "model": model,
+        "max_tokens": 500,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text",
+                 "text": str(question) + "\n（安卓手机截图，坐标原点在左上角；"
+                         "要点击的元素请写成：名称 @(x,y)）"},
+                {"type": "image_url",
+                 "image_url": {"url": "data:image/jpeg;base64," + b64}},
+            ],
+        }],
+    }
+    url = (base or "https://api.openai.com/v1") + "/chat/completions"
+    req = _req.Request(url, data=_json.dumps(body).encode(),
+                       headers={"Content-Type": "application/json",
+                                "Authorization": "Bearer " + key})
+    try:
+        with _req.urlopen(req, timeout=90) as r:
+            data = _json.loads(r.read().decode("utf-8", "replace"))
+        msg = data["choices"][0]["message"]["content"]
+        if isinstance(msg, list):
+            msg = "".join(p.get("text", "") for p in msg if isinstance(p, dict))
+        return (msg or "").strip()[:1500]
+    except Exception as e:
+        return "视觉模型调用失败: %s（查 vision_model / 网络 / key）" % e
 
 
 def t_icon_save(name, x, y, size=96):
@@ -898,8 +987,8 @@ def t_icon_save(name, x, y, size=96):
     return "已保存模板：%s（%dx%d，取自 %d,%d）" % (path, x2 - x1, y2 - y1, x, y)
 
 
-def t_icon_tap(name, threshold=0.62):
-    """按图标模板点击：多尺度匹配，返回相似度和位置。"""
+def t_icon_tap(name, threshold=0.60):
+    """按图标模板点击：灰度 NCC 为主，边缘兜底。"""
     try:
         import numpy as _np
         from PIL import Image as _Img
@@ -916,24 +1005,26 @@ def t_icon_tap(name, threshold=0.62):
     if err:
         return err
 
-    best = (-1.0, 0, 0, 1.0, "")
+    best = (-1.0, 0, 0, 1.0, "", "")
     for path in files:
         try:
             tpl = _np.asarray(_Img.open(path).convert("L"), dtype=_np.float32)
         except Exception:
             continue
-        sc, x, y, scale = _icon_match(shot, tpl)
+        got = _icon_match(shot, tpl)
+        sc, x, y, scale, mode = got
         if sc > best[0]:
-            best = (sc, x, y, scale, os.path.basename(path))
+            best = (sc, x, y, scale, os.path.basename(path), mode)
 
-    score, x, y, scale, fname = best
+    score, x, y, scale, fname, mode = best
     if score < float(threshold):
-        return ("没匹配上（最高相似度 %.2f，阈值 %.2f）。\n"
-                "可能界面变了或图标被换肤，重新 icon_save 一次即可。"
-                % (score, float(threshold)))
+        return ("没匹配上（最高相似度 %.2f，阈值 %.2f，%s）。\n"
+                "界面变了或换了皮肤，重新 icon_save 一次即可。"
+                % (score, float(threshold), mode))
 
     sh("input tap %d %d" % (x, y), timeout=15)
-    return "已点击图标「%s」@(%d,%d)（相似度 %.2f，scale %.2f）" % (fname, x, y, score, scale)
+    return "已点击图标「%s」@(%d,%d)（相似度 %.2f，%s，scale %.2f）" % (
+        fname, x, y, score, mode, scale)
 
 
 def _norm_txt(t):
@@ -2053,6 +2144,11 @@ TOOLS_SPEC = [
             "size": {"type": "integer", "description": "裁剪边长，默认 96"}},
             "required": ["name", "x", "y"]}}},
     {"type": "function", "function": {
+        "name": "see",
+        "description": "截图发给视觉模型，让它描述界面/找按钮（纯图形或游戏界面用）。需要在 config.json 配 vision_model。",
+        "parameters": {"type": "object", "properties": {
+            "question": {"type": "string"}}}}},
+    {"type": "function", "function": {
         "name": "ui_dump",
         "description": "读取当前手机界面：返回可识别的文字控件和它们的坐标。操作任何 App 前先调这个，看清有什么再点。",
         "parameters": {"type": "object", "properties": {
@@ -2252,6 +2348,8 @@ def execute_tool(name, a):
         if name == "icon_save":
             return t_icon_save(a.get("name", ""), a.get("x", 0), a.get("y", 0),
                                int(a.get("size", 96)))
+        if name == "see":
+            return t_see(a.get("question", "屏幕上有什么？关键按钮在哪？"))
         if name == "ui_dump":
             return t_ui_dump(a.get("query", ""), int(a.get("limit", 40)),
                              bool(a.get("clickable_only", False)))
