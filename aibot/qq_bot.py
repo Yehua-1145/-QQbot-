@@ -2201,14 +2201,86 @@ def _task_fire(t):
     return "已发送"
 
 
+FORCE_FILE = "/data/data/com.termux/files/home/aibot/task_force.json"
+
+
+def _task_force_pop():
+    """WebUI 点了「立即执行」会把任务 id 写进 FORCE_FILE，这里取走并删除。"""
+    try:
+        import json as _j
+        if not os.path.isfile(FORCE_FILE):
+            return None
+        with open(FORCE_FILE, encoding="utf-8") as f:
+            d = _j.load(f)
+        os.remove(FORCE_FILE)
+        tid = str((d or {}).get("id") or "")
+        return tid or None
+    except Exception:
+        return None
+
+
+def _task_fire_safe(t):
+    """包一层 try，任务在线程里跑，互不阻塞。"""
+    try:
+        r = _task_fire(t)
+        log("task done: %s -> %s" % (t.get("id"), r))
+    except Exception as e:
+        log("task fire error: %s" % e)
+
+
+def _task_catch_up():
+    """启动时把「今天该跑但没跑」的每日任务补一次（最多补 2 个，避免刷屏）。"""
+    try:
+        tasks = _tasks_load()
+        now = time.time()
+        lt = time.localtime()
+        today = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+        hhmm = time.strftime("%H:%M")
+        n = 0
+        for t in tasks:
+            if not isinstance(t, dict) or t.get("on") is False:
+                continue
+            if t.get("type") == "interval":
+                continue
+            at = str(t.get("at") or "08:00")[:5]
+            if at > hhmm:          # 还没到点
+                continue
+            if _TASK_STATE.get(str(t.get("id")), 0) >= today:
+                continue           # 今天已经跑过
+            if n >= 2:
+                log("task catch-up: 超过 2 个，剩下的下次再说")
+                break
+            tid = str(t.get("id") or "")
+            _TASK_STATE[tid] = now
+            n += 1
+            log("task catch-up fire: %s (%s)" % (tid, (t.get("content") or "")[:30]))
+            threading.Thread(target=_task_fire_safe, args=(t,), daemon=True).start()
+        if n:
+            _task_state_save()
+    except Exception as e:
+        log("task catch-up error: %s" % e)
+
+
 def _task_loop():
     """每 20 秒看一次有没有到点的任务。"""
     time.sleep(25)
+    _task_catch_up()
     while True:
         try:
             tasks = _tasks_load()
             now = time.time()
             changed = False
+
+            # 手动「立即执行」
+            forced = _task_force_pop()
+            if forced:
+                for t in tasks:
+                    if isinstance(t, dict) and str(t.get("id")) == forced:
+                        log("task forced: %s" % forced)
+                        _TASK_STATE[forced] = now
+                        changed = True
+                        threading.Thread(target=_task_fire_safe, args=(t,), daemon=True).start()
+                        break
             for t in tasks:
                 if not isinstance(t, dict) or t.get("on") is False:
                     continue
@@ -2219,10 +2291,7 @@ def _task_loop():
                 _TASK_STATE[tid] = now
                 changed = True
                 log("task fire: %s (%s)" % (tid, (t.get("content") or "")[:40]))
-                try:
-                    _task_fire(t)
-                except Exception as e:
-                    log("task fire error: %s" % e)
+                threading.Thread(target=_task_fire_safe, args=(t,), daemon=True).start()
             if changed:
                 _task_state_save()
         except Exception as e:

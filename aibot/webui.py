@@ -1411,7 +1411,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/tasks":
             cfg = _cfg_read()
+            st = cfg.get("task_state") or {}
             return self._json({"tasks": cfg.get("tasks") or [],
+                               "state": st,
                                "owner": cfg.get("owner_uid") or 0})
 
         if path == "/api/backups":
@@ -1530,6 +1532,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": str(e)})
             return
 
+        if path == "/api/task_run":
+            if not self._guard_dangerous():
+                return
+            import json as _j
+            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                body = _j.loads(self.rfile.read(n).decode("utf-8") or "{}")
+            except Exception as e:
+                self._json({"ok": False, "error": "解析失败: %s" % e})
+                return
+            tid = str(body.get("id") or "")
+            if not tid:
+                self._json({"ok": False, "msg": "缺少任务 id"})
+                return
+            try:
+                import json as _j2
+                with open("/data/data/com.termux/files/home/aibot/task_force.json", "w",
+                          encoding="utf-8") as f:
+                    _j2.dump({"id": tid}, f)
+                self._json({"ok": True, "msg": "已排队，20 秒内执行"})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)})
+            return
+
         if path == "/api/tasks":
             if not self._guard_dangerous():
                 return
@@ -1567,7 +1593,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "content": str(t.get("content") or "")[:2000],
                 })
             cfg = _cfg_read()
+            old_state = cfg.get("task_state") or {}
+            now_ts = __import__("time").time()
+            new_state = {}
+            for t in clean:
+                tid = t["id"]
+                # 已存在就沿用上次时间；新任务播种为「现在」，避免一保存就触发
+                new_state[tid] = old_state.get(tid, now_ts)
             cfg["tasks"] = clean
+            cfg["task_state"] = new_state
             try:
                 _cfg_write(cfg)
                 self._json({"ok": True, "tasks": clean})
@@ -2956,6 +2990,7 @@ async function saveWhitelist(){
 
 /* ---------------- 自动任务 ---------------- */
 let _tasks = [];
+let _taskState = {};
 
 function openTasks(){
   openOverlay("taskpage");
@@ -2963,13 +2998,41 @@ function openTasks(){
 }
 function closeTasks(){ closeOverlay("taskpage"); }
 
+function _fmtEvery(m){
+  m = parseInt(m || 60, 10) || 60;
+  if(m % 1440 === 0) return "每 " + (m / 1440) + " 天";
+  if(m % 60 === 0) return "每 " + (m / 60) + " 小时";
+  if(m > 90) return "每 " + (m / 60).toFixed(1) + " 小时";
+  return "每 " + m + " 分钟";
+}
+
 function _taskDesc(t){
-  const when = (t.type === "interval")
-    ? ("每 " + (t.every||60) + " 分钟")
-    : ("每天 " + (t.at || "08:00"));
+  const when = (t.type === "interval") ? _fmtEvery(t.every) : ("每天 " + (t.at || "08:00"));
   const what = (t.action === "shell") ? "执行命令" : "让 AI 去做";
+  if(t.action === "shell") return when + " · " + what + " · 不回消息";
   let to = t.target ? (t.is_group ? ("群 " + t.target) : ("QQ " + t.target)) : "发给我";
   return when + " · " + what + " · " + to;
+}
+
+function _nextRun(t){
+  const ts = _taskState[t.id];
+  if(!ts) return "";
+  const now = Date.now() / 1000;
+  if(t.type === "interval"){
+    const next = ts + (parseInt(t.every || 60, 10) * 60);
+    const left = Math.max(0, next - now);
+    if(left < 60) return "下次 " + Math.ceil(left) + " 秒后";
+    if(left < 3600) return "下次 " + Math.ceil(left / 60) + " 分钟后";
+    return "下次 " + (left / 3600).toFixed(1) + " 小时后";
+  }
+  // 每天：算到今天的 HH:MM
+  const parts = (t.at || "08:00").split(":");
+  const d = new Date();
+  d.setHours(parseInt(parts[0] || 8, 10), parseInt(parts[1] || 0, 10), 0, 0);
+  let diff = d.getTime() / 1000 - now;
+  if(diff < 0) diff += 86400;
+  if(diff < 3600) return "下次 " + Math.ceil(diff / 60) + " 分钟后";
+  return "下次 " + (diff / 3600).toFixed(1) + " 小时后";
 }
 
 function renderTasks(){
@@ -2985,20 +3048,45 @@ function renderTasks(){
     const txt = (t.content || "").replace(/[<>&]/g, function(c){
       return {"<":"&lt;", ">":"&gt;", "&":"&amp;"}[c];
     }).slice(0, 60);
+    const last = _taskState[t.id] ? new Date(_taskState[t.id] * 1000) : null;
+    const lastTxt = last
+      ? ("上次 " + (last.getMonth() + 1) + "/" + last.getDate() + " " +
+         String(last.getHours()).padStart(2, "0") + ":" +
+         String(last.getMinutes()).padStart(2, "0"))
+      : "还没跑过";
     return '<div class="card" style="margin:0 0 10px">' +
       '<div class="row"><span>' + tag + ' ' + _taskDesc(t) + '</span></div>' +
-      '<div class="mini" style="margin:8px 0 10px">' + txt + '</div>' +
-      '<div class="btns">' +
-        '<button onclick="toggleTask(' + i + ')">' + (on ? "暂停" : "启用") + '</button>' +
-        '<button class="danger" onclick="delTask(' + i + ')">删除</button>' +
+      '<div class="mini" style="margin:8px 0 6px">' + txt + '</div>' +
+      '<div class="mini" style="margin:0 0 10px;color:#6e7781">' + lastTxt +
+        (on ? ("　·　" + _nextRun(t)) : "") + '</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
+        '<button style="width:100%;height:46px;padding:0;font-size:14px;box-sizing:border-box;line-height:1" onclick="runTask(' + i + ')">立即执行</button>' +
+        '<button style="width:100%;height:46px;padding:0;font-size:14px;box-sizing:border-box;line-height:1" onclick="toggleTask(' + i + ')">' + (on ? "暂停" : "启用") + '</button>' +
+        '<button style="width:100%;height:46px;padding:0;font-size:14px;box-sizing:border-box;line-height:1;background:#3d1b1b;color:#ffb4b4" onclick="delTask(' + i + ')">删除</button>' +
       '</div></div>';
   }).join("");
+}
+
+async function runTask(i){
+  const t = _tasks[i];
+  if(!t) return;
+  if(!confirm("现在就跑一次？\n\n" + ((t.content || "").slice(0, 40)))){
+    return;
+  }
+  try{
+    const d = await jpost("/api/task_run", { id: t.id });
+    toast(d.ok ? (d.msg || "已排队") : (d.msg || d.error || "失败"));
+    if(d.ok){
+      setTimeout(loadTasks, 3000);
+    }
+  }catch(e){ toast("请求失败"); }
 }
 
 async function loadTasks(){
   try{
     const d = await jget("/api/tasks");
     _tasks = d.tasks || [];
+    _taskState = d.state || {};
     renderTasks();
   }catch(e){
     const box = $("tasklist");
