@@ -175,6 +175,23 @@ def _user_persona():
         return ""
 
 
+UI_GUIDE = """
+=== 操作手机界面的流程（重要） ===
+要替用户在别的 App 里做事，按这个顺序，不要凭记忆点坐标：
+1. ui_dump 先看当前界面有什么（列出文字和坐标）
+2. ui_tap(text="按钮上的字") 点它；找不到会把候选返回给你，照着改
+3. 要输入就 ui_type(text=..., into="输入框提示词")
+4. 列表翻页用 ui_swipe(direction=up/down)
+5. 每步之后 ui_dump 或 ui_wait(expect_text=...) 确认，再走下一步
+6. 走错了用 ui_key("back") 退回
+
+硬规则：
+- 不确定界面长什么样就先 ui_dump，一次只做一个动作
+- 涉及付款、删除、给别人发消息，先问用户确认
+- 这一步没成功就老实说没做成，不要假装点了
+"""
+
+
 def _r18_master_on():
     """深度抓图总开关：关着时连主人也不能用成人图源。"""
     try:
@@ -239,6 +256,7 @@ def build_system_prompt(mode="normal"):
                 p += "\n\n=== 你记住的事（memory.md）===\n" + mem
     except Exception:
         pass
+    p += "\n\n" + UI_GUIDE
     return p
 
 
@@ -346,6 +364,211 @@ def t_tap(x, y):
 
 def t_open_app(package):
     return sh("monkey -p %s -c android.intent.category.LAUNCHER 1" % package, timeout=20)
+
+
+# ==================== 界面自动化（uiautomator） ====================
+UI_XML = "/sdcard/.agent_ui.xml"
+
+
+def _ui_dump_raw():
+    """导出一次界面层级。返回 (xml_text, err)。
+
+    注意：sh() 只保留输出最后 8000 字符，XML 会被截头，
+    所以这里直接用 open() 读文件（进程本身有 root）。
+    """
+    try:
+        sh("rm -f " + UI_XML, timeout=10)
+        out = sh("uiautomator dump " + UI_XML + " 2>&1", timeout=60)
+        txt = ""
+        try:
+            with open(UI_XML, "r", encoding="utf-8", errors="replace") as f:
+                txt = f.read(400000)
+        except Exception:
+            txt = sh("cat " + UI_XML + " 2>/dev/null", timeout=30)
+        if "<hierarchy" not in (txt or ""):
+            return None, ("uiautomator 没导出成功: " + (out or "")[:160])
+        return txt, None
+    except Exception as e:
+        return None, "uiautomator 失败: %s" % e
+
+
+def _ui_nodes(raw):
+    """解析成节点列表：[{text, desc, cls, bounds,(cx,cy), clickable, focused, id}]"""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(raw)
+    except Exception as e:
+        return []
+    nodes = []
+    for n in root.iter("node"):
+        txt = (n.get("text") or "").strip()
+        desc = (n.get("content-desc") or "").strip()
+        cls = (n.get("class") or "").split(".")[-1]
+        rid = (n.get("resource-id") or "").split("/")[-1]
+        clickable = n.get("clickable") == "true"
+        focused = n.get("focused") == "true"
+        b = n.get("bounds") or ""
+        m = _re_ui_bounds(b)
+        if not m:
+            continue
+        x1, y1, x2, y2 = m
+        if x2 - x1 <= 0 or y2 - y1 <= 0:
+            continue
+        if not (txt or desc or clickable or rid):
+            continue
+        nodes.append({
+            "pkg": (n.get("package") or ""), "text": txt, "desc": desc, "cls": cls, "id": rid,
+            "cx": (x1 + x2) // 2, "cy": (y1 + y2) // 2,
+            "clickable": clickable, "focused": focused,
+        })
+    return nodes
+
+
+def _re_ui_bounds(b):
+    import re as _r
+    m = _r.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", b or "")
+    if not m:
+        return None
+    return tuple(int(g) for g in m.groups())
+
+
+def t_ui_dump(query="", limit=40, clickable_only=False):
+    """看当前界面有哪些可点的东西（文字 + 坐标）。"""
+    raw, err = _ui_dump_raw()
+    if err:
+        return "(界面读取失败) " + err
+    nodes = _ui_nodes(raw)
+    if not nodes:
+        return "(当前界面没有任何可识别控件，可能是全屏视频/游戏/加密界面)"
+
+    fg = ""
+    try:
+        fg = sh("dumpsys window 2>/dev/null | grep -m1 mCurrentFocus", timeout=20).strip()
+    except Exception:
+        pass
+
+    # 去掉状态栏/导航栏的节点，省 token 也少干扰
+    nodes = [n for n in nodes
+             if n.get("pkg") not in ("com.android.systemui",)]
+
+    if query:
+        q = query.lower()
+        nodes = [n for n in nodes if q in (n["text"] + n["desc"] + n["id"]).lower()]
+    if clickable_only:
+        nodes = [n for n in nodes if n["clickable"]]
+
+    # 有文字的排前面（对模型最有用），同组内可点的靠前
+    nodes.sort(key=lambda n: (0 if (n["text"] or n["desc"]) else 1,
+                              0 if n["clickable"] else 1))
+
+    total = len(nodes)
+    nodes = nodes[:max(1, min(int(limit or 40), 60))]
+
+    lines = ["[当前界面] " + (fg.split("u0 ")[-1] if fg else "未知") if fg else "[当前界面] 未知"]
+    for i, n in enumerate(nodes):
+        label = n["text"] or n["desc"] or n["id"] or n["cls"]
+        mark = ""
+        if n["clickable"]:
+            mark += "·可点"
+        if n["focused"]:
+            mark += "·已聚焦"
+        lines.append("%d. %s%s  @(%d,%d)" % (i, label[:40], mark, n["cx"], n["cy"]))
+    if total > len(nodes):
+        lines.append("（共 %d 项，只显示前 %d 项；可加 query 过滤或调 limit）" % (total, len(nodes)))
+    return "\n".join(lines)
+
+
+def t_ui_tap(text="", index=None, x=None, y=None):
+    """按文字/描述点控件；找不到就返回候选，让模型改口。"""
+    if x is not None and y is not None:
+        sh("input tap %s %s" % (int(x), int(y)), timeout=15)
+        return "已点击坐标 (%s,%s)" % (x, y)
+
+    raw, err = _ui_dump_raw()
+    if err:
+        return "(界面读取失败) " + err
+    nodes = _ui_nodes(raw)
+    if text:
+        q = str(text).lower()
+        hits = [n for n in nodes if q in (n["text"] + " " + n["desc"] + " " + n["id"]).lower()]
+        if not hits:
+            cand = [n["text"] or n["desc"] or n["id"] for n in nodes if (n["text"] or n["desc"])][:12]
+            return ("界面上没找到「%s」。当前可见的有：%s\n建议先 ui_dump 看一下。"
+                    % (text, "、".join(cand)))
+        try:
+            k = int(index or 0)
+        except Exception:
+            k = 0
+        n = hits[k] if k < len(hits) else hits[0]
+        sh("input tap %d %d" % (n["cx"], n["cy"]), timeout=15)
+        return "已点击「%s」@(%d,%d)" % ((n["text"] or n["desc"] or n["id"])[:30], n["cx"], n["cy"])
+    return "需要 text（按文字点）或 x/y（按坐标点）"
+
+
+def t_ui_type(text, into=""):
+    """先点输入框再输入文字。into 是输入框的提示文字/描述，可省略。"""
+    if into:
+        raw, _err = _ui_dump_raw()
+        nodes = _ui_nodes(raw) if raw else []
+        q = str(into).lower()
+        hits = [n for n in nodes if q in (n["text"] + n["desc"] + n["id"]).lower()]
+        if hits:
+            sh("input tap %d %d" % (hits[0]["cx"], hits[0]["cy"]), timeout=15)
+            time.sleep(0.6)
+    safe = str(text).replace("'", "").replace("\n", " ")
+    sh("input text '%s'" % safe, timeout=20)
+    return "已输入：%s" % safe[:60]
+
+
+def t_ui_swipe(direction="up", dist=500):
+    """滑动界面：up/down/left/right。"""
+    try:
+        size = sh("wm size", timeout=10).strip().split(":")[-1].strip()
+        w, h = [int(v) for v in size.split("x")]
+    except Exception:
+        w, h = 1080, 1920
+    cx, cy = w // 2, h // 2
+    d = max(120, min(int(dist), min(w, h) // 2))
+    if direction == "up":
+        x1, y1, x2, y2 = cx, cy + d // 2, cx, cy - d // 2
+    elif direction == "down":
+        x1, y1, x2, y2 = cx, cy - d // 2, cx, cy + d // 2
+    elif direction == "left":
+        x1, y1, x2, y2 = cx + d // 2, cy, cx - d // 2, cy
+    else:
+        x1, y1, x2, y2 = cx - d // 2, cy, cx + d // 2, cy
+    sh("input swipe %d %d %d %d 350" % (x1, y1, x2, y2), timeout=20)
+    return "已向 %s 滑动" % direction
+
+
+def t_ui_key(key="back"):
+    """按键：back / home / enter / delete / recents / power。"""
+    m = {"back": 4, "home": 3, "recents": 187, "enter": 66, "delete": 67,
+         "power": 26, "volume_up": 24, "volume_down": 25, "tab": 61}
+    code = m.get(str(key).lower(), 4)
+    sh("input keyevent %d" % code, timeout=15)
+    return "已按 %s" % key
+
+
+def t_ui_wait(seconds=1.5, expect_text=""):
+    """等界面稳定；给了 expect_text 就等到它出现（最多 ~8 秒）。"""
+    try:
+        sec = max(0.3, min(float(seconds), 8.0))
+    except Exception:
+        sec = 1.5
+    if not expect_text:
+        time.sleep(sec)
+        return "已等待 %.1f 秒" % sec
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        raw, err = _ui_dump_raw()
+        if not err:
+            nodes = _ui_nodes(raw)
+            q = str(expect_text).lower()
+            if any(q in (n["text"] + n["desc"]).lower() for n in nodes):
+                return "「%s」已出现" % expect_text
+        time.sleep(0.8)
+    return "等了 8 秒没等到「%s」" % expect_text
 
 
 # ---------- web image search (Bing CN, works from China) ----------
@@ -1324,6 +1547,41 @@ TOOLS_SPEC = [
         "name": "open_app", "description": "Launch app by package.",
         "parameters": {"type": "object", "properties": {"package": {"type": "string"}}, "required": ["package"]}}},
     {"type": "function", "function": {
+        "name": "ui_dump",
+        "description": "读取当前手机界面：返回可识别的文字控件和它们的坐标。操作任何 App 前先调这个，看清有什么再点。",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "只看包含这个词的控件，可省略"},
+            "limit": {"type": "integer", "description": "最多返回几条，默认 40"},
+            "clickable_only": {"type": "boolean", "description": "只看能点的"}}}}},
+    {"type": "function", "function": {
+        "name": "ui_tap",
+        "description": "按文字点击界面上的控件（推荐）；找不到会返回候选列表。也可以直接用坐标。",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "要点的按钮/条目文字"},
+            "index": {"type": "integer", "description": "同名控件里的第几个，从 0 开始"},
+            "x": {"type": "integer"}, "y": {"type": "integer"}}}}},
+    {"type": "function", "function": {
+        "name": "ui_type",
+        "description": "往输入框填文字。into 填输入框的提示词会自动定位并点击它。",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string"}, "into": {"type": "string"}}, "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "ui_swipe",
+        "description": "滑动界面（列表、页面翻页）。",
+        "parameters": {"type": "object", "properties": {
+            "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+            "dist": {"type": "integer", "description": "滑动距离像素，默认 500"}}}}},
+    {"type": "function", "function": {
+        "name": "ui_key",
+        "description": "按系统键：back / home / enter / delete / recents / power。",
+        "parameters": {"type": "object", "properties": {
+            "key": {"type": "string", "description": "back/home/enter/delete/recents/power"}}}}},
+    {"type": "function", "function": {
+        "name": "ui_wait",
+        "description": "等界面变化；给 expect_text 会等它出现（最多 8 秒）。",
+        "parameters": {"type": "object", "properties": {
+            "seconds": {"type": "number"}, "expect_text": {"type": "string"}}}}},
+    {"type": "function", "function": {
         "name": "web_search", "description": "Search the web for image URLs matching a query.",
         "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "count": {"type": "integer"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "safe_preview", "description": "Send a preview set of safe images (picks one non-adult gallery and sends a few random pages; falls back to the local safe gallery).", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "count": {"type": "integer"}}, "required": []}}},
@@ -1473,6 +1731,20 @@ def execute_tool(name, a):
             return t_tap(a.get("x", 0), a.get("y", 0))
         if name == "open_app":
             return t_open_app(a.get("package", ""))
+        if name == "ui_dump":
+            return t_ui_dump(a.get("query", ""), int(a.get("limit", 40)),
+                             bool(a.get("clickable_only", False)))
+        if name == "ui_tap":
+            return t_ui_tap(a.get("text", ""), a.get("index"),
+                            a.get("x"), a.get("y"))
+        if name == "ui_type":
+            return t_ui_type(a.get("text", ""), a.get("into", ""))
+        if name == "ui_swipe":
+            return t_ui_swipe(a.get("direction", "up"), int(a.get("dist", 500)))
+        if name == "ui_key":
+            return t_ui_key(a.get("key", "back"))
+        if name == "ui_wait":
+            return t_ui_wait(a.get("seconds", 1.5), a.get("expect_text", ""))
         if name == "web_search":
             return t_web_search(a.get("query", ""), a.get("count", 5))
         if name == "eh_safe_search":
