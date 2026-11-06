@@ -438,8 +438,11 @@ def t_ui_dump(query="", limit=40, clickable_only=False):
     if err:
         return "(界面读取失败) " + err
     nodes = _ui_nodes(raw)
+    nodes = [n for n in nodes if n.get("pkg") not in ("com.android.systemui",)]
     if not nodes:
-        return "(当前界面没有任何可识别控件，可能是全屏视频/游戏/加密界面)"
+        # 控件读不到（WebView / 游戏 / 图片界面）→ 自动 OCR
+        ocr_txt = t_ocr_screen("chi_sim+eng", limit)
+        return ("(uiautomator 读不到控件，已自动改用 OCR)\n" + ocr_txt)
 
     fg = ""
     try:
@@ -569,6 +572,179 @@ def t_ui_wait(seconds=1.5, expect_text=""):
                 return "「%s」已出现" % expect_text
         time.sleep(0.8)
     return "等了 8 秒没等到「%s」" % expect_text
+
+
+# ==================== OCR 兜底（WebView / 游戏 / 图片界面） ====================
+PREFIX = "/data/data/com.termux/files/usr"
+OCR_IMG = "/sdcard/.agent_ocr.png"
+TESS = PREFIX + "/bin/tesseract"
+TESSDATA = PREFIX + "/share/tessdata"
+
+
+def _ocr_available():
+    return os.path.isfile(TESS)
+
+
+def _ocr_screen(lang="chi_sim+eng", min_conf=45, limit=40):
+    """截图后 OCR，返回 [(文字, x, y)]。
+
+    关键：screencap 是系统二进制，绝不能带 Termux 的 LD_LIBRARY_PATH，
+    否则会报 cannot locate symbol 直接挂掉；tesseract 反过来必须要它。
+    """
+    import subprocess as _sp
+
+    if not _ocr_available():
+        return None, "没装 tesseract"
+
+    # 1) 截图（清掉 LD_LIBRARY_PATH）
+    for cmd in ("rm -f " + OCR_IMG,
+                "env -u LD_LIBRARY_PATH screencap -p " + OCR_IMG):
+        try:
+            _sp.run(["su", "-c", cmd], capture_output=True, timeout=40)
+        except Exception:
+            pass
+    if not os.path.isfile(OCR_IMG):
+        return None, "截图失败"
+
+    # 2) OCR 成 TSV（tesseract 需要 Termux 的库路径）
+    cmd = ("export LD_LIBRARY_PATH=%s/lib; export TESSDATA_PREFIX=%s; "
+           "%s %s stdout -l %s tsv 2>/dev/null"
+           % (PREFIX, TESSDATA, TESS, OCR_IMG, lang))
+    try:
+        p = _sp.run(["su", "-c", cmd], capture_output=True, text=True, timeout=180)
+        tsv = p.stdout or ""
+    except Exception as e:
+        return None, "OCR 超时/失败: %s" % e
+
+    if "level" not in tsv[:200]:
+        return None, "OCR 没有输出"
+
+    # 3) 解析：按 block/par/line 聚成行，算中心点
+    rows = []
+    lines = tsv.splitlines()
+    for ln in lines[1:]:
+        f = ln.split("\t")
+        if len(f) < 12:
+            continue
+        try:
+            conf = float(f[10])
+            left, top, w, h = int(f[6]), int(f[7]), int(f[8]), int(f[9])
+        except Exception:
+            continue
+        word = (f[11] or "").strip()
+        if not word or conf < min_conf:
+            continue
+        key = (f[1], f[2], f[3], f[4])   # page/block/par/line
+        rows.append((key, word, left, top, w, h))
+
+    groups = {}
+    for key, word, left, top, w, h in rows:
+        g = groups.setdefault(key, {"words": [], "x1": 10 ** 9, "y1": 10 ** 9,
+                                    "x2": 0, "y2": 0})
+        g["words"].append(word)
+        g["x1"] = min(g["x1"], left)
+        g["y1"] = min(g["y1"], top)
+        g["x2"] = max(g["x2"], left + w)
+        g["y2"] = max(g["y2"], top + h)
+
+    out = []
+    for g in groups.values():
+        txt = "".join(g["words"]) if len("".join(g["words"])) > 1 else g["words"][0]
+        txt = " ".join(g["words"]) if all(len(w) <= 6 for w in g["words"]) else "".join(g["words"])
+        cx = (g["x1"] + g["x2"]) // 2
+        cy = (g["y1"] + g["y2"]) // 2
+        out.append((txt.strip(), cx, cy))
+
+    out.sort(key=lambda t: (t[2], t[1]))
+    return out[:max(1, min(int(limit or 40), 60))], None
+
+
+def _ocr_words(lang="chi_sim+eng", min_conf=55, limit=200):
+    """词级 OCR：每个词单独一个坐标，点小按钮更准。"""
+    import subprocess as _sp
+    if not _ocr_available():
+        return None, "没装 tesseract"
+    for cmd in ("rm -f " + OCR_IMG,
+                "env -u LD_LIBRARY_PATH screencap -p " + OCR_IMG):
+        try:
+            _sp.run(["su", "-c", cmd], capture_output=True, timeout=40)
+        except Exception:
+            pass
+    if not os.path.isfile(OCR_IMG):
+        return None, "截图失败"
+    cmd = ("export LD_LIBRARY_PATH=%s/lib; export TESSDATA_PREFIX=%s; "
+           "%s %s stdout -l %s tsv 2>/dev/null"
+           % (PREFIX, TESSDATA, TESS, OCR_IMG, lang))
+    try:
+        p = _sp.run(["su", "-c", cmd], capture_output=True, text=True, timeout=180)
+        tsv = p.stdout or ""
+    except Exception as e:
+        return None, "OCR 失败: %s" % e
+
+    out = []
+    for ln in tsv.splitlines()[1:]:
+        f = ln.split("\t")
+        if len(f) < 12:
+            continue
+        try:
+            conf = float(f[10])
+            left, top, w, h = int(f[6]), int(f[7]), int(f[8]), int(f[9])
+        except Exception:
+            continue
+        word = (f[11] or "").strip()
+        if not word or conf < min_conf:
+            continue
+        out.append((word, left + w // 2, top + h // 2))
+    return out[:limit], None
+
+
+
+def t_ocr_screen(lang="chi_sim+eng", limit=40, query=""):
+    """OCR 读屏：给 WebView / 游戏 / 图片界面用。"""
+    items, err = _ocr_screen(lang, limit=60)
+    if err:
+        return "(OCR 不可用) " + str(err)
+    if not items:
+        return "(OCR 没识别出文字，屏幕可能是纯图标或纯色)"
+
+    if query:
+        q = str(query).lower()
+        items = [t for t in items if q in t[0].lower()]
+
+    total = len(items)
+    items = items[:max(1, min(int(limit or 40), 60))]
+    lines = ["[OCR 读屏] 共 %d 行" % total]
+    for i, (txt, x, y) in enumerate(items):
+        lines.append("%d. %s  @(%d,%d)" % (i, txt[:38], x, y))
+    return "\n".join(lines)
+
+
+def t_ocr_tap(text, index=0):
+    """在 OCR 结果里按文字点击（给拍不到控件的地方用）。先按词匹配，命中更准。"""
+    words, werr = _ocr_words()
+    if not werr and words:
+        q = str(text or "").lower().strip()
+        hits = [w for w in words if q and (q in w[0].lower())]
+        if hits:
+            k = int(index or 0)
+            w, x, y = hits[k] if k < len(hits) else hits[0]
+            sh("input tap %d %d" % (x, y), timeout=15)
+            return "已点击「%s」@(%d,%d)（OCR 词定位）" % (w, x, y)
+
+    items, err = _ocr_screen(limit=60)
+    if err:
+        return "(OCR 不可用) " + str(err)
+    q = str(text or "").lower()
+    if not q:
+        return "需要一个要点的文字"
+    hits = [t for t in items if q in t[0].lower()]
+    if not hits:
+        cand = [t[0] for t in items][:10]
+        return "OCR 里没找到「%s」。看到的是：%s" % (text, "、".join(cand))
+    k = int(index or 0)
+    txt, x, y = hits[k] if k < len(hits) else hits[0]
+    sh("input tap %d %d" % (x, y), timeout=15)
+    return "已点击「%s」@(%d,%d)（OCR 定位）" % (txt[:30], x, y)
 
 
 # ---------- web image search (Bing CN, works from China) ----------
@@ -1547,6 +1723,21 @@ TOOLS_SPEC = [
         "name": "open_app", "description": "Launch app by package.",
         "parameters": {"type": "object", "properties": {"package": {"type": "string"}}, "required": ["package"]}}},
     {"type": "function", "function": {
+        "name": "ocr_screen",
+        "description": "OCR 读屏：ui_dump 读不到控件时用它（WebView / 游戏 / 图片界面）。返回文字和坐标。",
+        "parameters": {"type": "object", "properties": {
+            "lang": {"type": "string", "description": "chi_sim+eng（默认）或 eng"},
+            "query": {"type": "string", "description": "只看含这个词的行"},
+            "limit": {"type": "integer"}},
+            "required": []}}},
+    {"type": "function", "function": {
+        "name": "ocr_tap",
+        "description": "在 OCR 结果里按文字点击（控件抓不到的地方用）。",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string"},
+            "index": {"type": "integer"}},
+            "required": ["text"]}}},
+    {"type": "function", "function": {
         "name": "ui_dump",
         "description": "读取当前手机界面：返回可识别的文字控件和它们的坐标。操作任何 App 前先调这个，看清有什么再点。",
         "parameters": {"type": "object", "properties": {
@@ -1731,6 +1922,11 @@ def execute_tool(name, a):
             return t_tap(a.get("x", 0), a.get("y", 0))
         if name == "open_app":
             return t_open_app(a.get("package", ""))
+        if name == "ocr_screen":
+            return t_ocr_screen(a.get("lang", "chi_sim+eng"),
+                                int(a.get("limit", 40)), a.get("query", ""))
+        if name == "ocr_tap":
+            return t_ocr_tap(a.get("text", ""), int(a.get("index", 0)))
         if name == "ui_dump":
             return t_ui_dump(a.get("query", ""), int(a.get("limit", 40)),
                              bool(a.get("clickable_only", False)))
