@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-store">
+<title>Botagent 手机直装（不用电脑）</title>
+<style>
+  :root{
+    --bg:#0b0f14; --card:#141b24; --line:#26313d; --fg:#e6edf3;
+    --dim:#8b98a5; --green:#3fb950; --blue:#2f81f7; --amber:#f0b429; --red:#f85149;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{
+    margin:0;background:var(--bg);color:var(--fg);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    padding:0 0 60px;
+  }
+  .wrap{max-width:680px;margin:0 auto;padding:0 18px}
+  header{padding:34px 0 18px;text-align:center}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:.5px}
+  .sub{color:var(--dim);font-size:14px}
+  .badge{
+    display:inline-block;margin-top:14px;padding:5px 12px;border-radius:20px;
+    background:#132a1a;color:var(--green);font-size:13px;border:1px solid #1f4d2b;
+  }
+  .step{
+    background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:18px 16px;margin:14px 0;position:relative;
+  }
+  .step.done{border-color:#235c34;background:#101a14}
+  .head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .num{
+    width:28px;height:28px;border-radius:50%;flex:0 0 28px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:14px;font-weight:700;border:2px solid var(--blue);color:var(--blue);
+  }
+  .step.done .num{border-color:var(--green);color:var(--green)}
+  .title{font-size:18px;font-weight:700;flex:1}
+  .desc{color:var(--dim);font-size:14.5px;margin:6px 0 12px}
+  .desc b{color:var(--fg);font-weight:600}
+  a.btn,button.btn{
+    display:block;width:100%;text-align:center;text-decoration:none;
+    padding:13px 10px;border-radius:11px;font-size:16px;font-weight:600;
+    background:var(--blue);color:#fff;border:0;margin-top:10px;cursor:pointer;
+    font-family:inherit;
+  }
+  a.btn.ghost,button.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+  button.btn.ok{background:#1f7a3a}
+  code,pre{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:13px;
+  }
+  pre{
+    background:#0d1319;border:1px solid var(--line);border-radius:10px;
+    padding:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;
+    margin:10px 0 0;color:#9fe8b0;
+  }
+  .chk{
+    display:flex;align-items:center;gap:10px;margin-top:12px;
+    color:var(--dim);font-size:14px;cursor:pointer;user-select:none;
+  }
+  .chk input{width:20px;height:20px;accent-color:var(--green)}
+  .note{
+    border-left:3px solid var(--amber);background:#1a1710;color:#e3c98d;
+    padding:10px 12px;border-radius:0 8px 8px 0;font-size:14px;margin:12px 0 0;
+  }
+  .note.red{border-color:var(--red);background:#1a1010;color:#f0a8a3}
+  .note b{color:#fff}
+  h2{font-size:19px;margin:30px 0 10px}
+  details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0}
+  summary{cursor:pointer;font-weight:600;font-size:15.5px}
+  details p,details li{color:var(--dim);font-size:14.5px}
+  details b{color:var(--fg)}
+  footer{text-align:center;color:var(--dim);font-size:13px;margin-top:34px;line-height:2}
+  footer a{color:var(--blue);text-decoration:none}
+  .toast{
+    position:fixed;left:50%;bottom:34px;transform:translateX(-50%) translateY(20px);
+    background:#1f7a3a;color:#fff;padding:10px 18px;border-radius:20px;
+    font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:9;
+  }
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+  .prog{height:4px;background:#1a222c;border-radius:4px;overflow:hidden;margin:16px 0 4px}
+  .prog i{display:block;height:100%;width:0;background:var(--green);transition:.3s}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>手机直装 Botagent</h1>
+    <div class="sub">不用电脑 · 不用 root · 一台闲置安卓机</div>
+    <div class="badge" id="dev">检测中…</div>
+  </header>
+
+  <div class="prog"><i id="bar"></i></div>
+  <div class="sub" style="text-align:center;font-size:13px" id="progtxt">0 / 3 完成</div>
+
+  <!-- 1 -->
+  <div class="step" id="s1">
+    <div class="head"><div class="num">1</div><div class="title">装 QQ 协议端（AstrBot App）</div></div>
+    <div class="desc">
+      QQ 登录靠它。它自带 Ubuntu + Linux QQ + NapCat，<b>不用 root</b>。<br>
+      装完打开 → 扫码登录你的 <b>QQ 小号</b> → 进设置把 <b>WebSocket 端口改成 3001</b>。
+    </div>
+    <a class="btn" href="https://github.com/MuFengDR/AstrBot-Bubble-Android-App/releases" target="_blank" rel="noopener">
+      下载轻量版（约 95 MB）
+    </a>
+    <a class="btn ghost" href="https://github.com/JunWan666/astrbot-for-android/releases" target="_blank" rel="noopener">
+      完整版（约 1 GB，功能全）
+    </a>
+    <div class="note">
+      两个任选一个。装完必须确认 <b>WebSocket 端口 = 3001</b>，否则下一步连不上。
+    </div>
+    <label class="chk"><input type="checkbox" data-k="s1"> 已装好并登录 QQ，端口设成 3001</label>
+  </div>
+
+  <!-- 2 -->
+  <div class="step" id="s2">
+    <div class="head"><div class="num">2</div><div class="title">装 Termux（跑程序的环境）</div></div>
+    <div class="desc">
+      从 <b>F-Droid</b> 装，不要用应用商店里那个旧版（会装不上包）。
+    </div>
+    <a class="btn" href="https://f-droid.org/packages/com.termux/" target="_blank" rel="noopener">
+      打开 F-Droid 下载页
+    </a>
+    <div class="note">
+      装完先打开一次，等它自己初始化完（几十秒），看到 <code>$</code> 提示符就行。
+    </div>
+    <label class="chk"><input type="checkbox" data-k="s2"> Termux 装好了，能看到命令行</label>
+  </div>
+
+  <!-- 3 -->
+  <div class="step" id="s3">
+    <div class="head"><div class="num">3</div><div class="title">粘一条命令，等它自己装</div></div>
+    <div class="desc">
+      在 Termux 里长按屏幕 → Paste（或音量键 + V）粘贴下面这条，回车。
+      <b>大约 3~8 分钟</b>，中途会问几个问题（QQ 号、API Key）。
+    </div>
+    <pre id="cmd">pkg install -y curl && bash -c "$(curl -sL https://cdn.jsdelivr.net/gh/Yehua-1145/-QQbot-@main/install_phone.sh)"</pre>
+    <button class="btn" id="copy">复制命令</button>
+    <div class="note">
+      如果卡住不动：按 <b>Ctrl</b>+<b>C</b> 停掉，先单独跑 <code>pkg install curl</code> 看看有没有报错。
+    </div>
+    <label class="chk"><input type="checkbox" data-k="s3"> 跑完了，最后看到「装好了」</label>
+  </div>
+
+  <!-- 4 -->
+  <div class="step" id="s4">
+    <div class="head"><div class="num">4</div><div class="title">打开控制台</div></div>
+    <div class="desc">
+      手机浏览器访问下面这个地址（本机访问不用 token）：
+    </div>
+    <pre>http://127.0.0.1:8080/app</pre>
+    <a class="btn ghost" href="http://127.0.0.1:8080/app" target="_blank" rel="noopener">直接打开</a>
+    <div class="note">
+      进不去就看 Termux 里最后几行输出——通常是 8080 被占用，或者在 <code>~/aibot</code> 里跑 <code>bash stop.sh</code> 再 <code>bash start.sh</code>。
+    </div>
+    <label class="chk"><input type="checkbox" data-k="s4"> 控制台打开了</label>
+  </div>
+
+  <h2>装不上？先看这几条</h2>
+
+  <details>
+    <summary>提示「Could not resolve host」/ 下载很慢</summary>
+    <p>手机网络解析不了 GitHub。脚本已经内置三个下载源自动切换（直连 → gh-proxy → ghproxy.cc），
+       全失败的话：电脑/手机浏览器手动下 <b>Botagent-v1.1.zip</b>，放到
+       <code>/sdcard/Download/</code>，然后在 Termux 里跑：</p>
+    <pre>bash install_phone.sh --zip /sdcard/Download/Botagent-v1.1.zip</pre>
+  </details>
+
+  <details>
+    <summary>Termux 里 <code>pkg</code> 报错 / 装不上 python</summary>
+    <p>多半是镜像问题。手动换成官方源再试：</p>
+    <pre>echo "deb https://packages.termux.dev/apt/termux-main stable main" > $PREFIX/etc/apt/sources.list
+apt update && pkg install -y python</pre>
+  </details>
+
+  <details>
+    <summary>控制台能开，但 QQ 里机器人不理我</summary>
+    <p>说明 <b>3001 没通</b>，也就是 AstrBot 那边没起来。检查顺序：</p>
+    <ul>
+      <li>AstrBot App 里 QQ 是否显示「在线」</li>
+      <li>它的 <b>WebSocket 端口是否 3001</b>（默认可能是别的）</li>
+      <li>在 Termux 跑 <code>bash ~/aibot/status.sh</code>，看 napcat 那行</li>
+    </ul>
+  </details>
+
+  <details>
+    <summary>想让 AI 替你点屏幕（可选）</summary>
+    <p>解压包里有 <code>手机端手动部署/Botagent.apk</code>，装上，去
+       <b>设置 → 无障碍 → 已下载的服务 → Botagent</b> 打开。之后在 QQ 里说
+       「帮我把设置里的护眼模式关掉」它就能自己点了。</p>
+    <p>注意：重装 App 后无障碍会被系统关掉，需要重新开一次。</p>
+  </details>
+
+  <details>
+    <summary>怎么关掉 / 重启</summary>
+    <pre>bash ~/aibot/start.sh     # 启动
+bash ~/aibot/stop.sh      # 停止
+bash ~/aibot/status.sh    # 看状态</pre>
+    <p>想开机自启：装 Termux:Boot，然后执行一次 <code>bash ~/aibot/start.sh</code> 的注册步骤（脚本已写好 <code>~/.termux/boot/</code>）。</p>
+  </details>
+
+  <h2>这玩意能干什么</h2>
+  <div class="step" style="background:#101720">
+    <div class="desc" style="margin:0">
+      <b>QQ 里说人话就行</b><br>
+      · 「还剩多少电」→ 真去查<br>
+      · 「来张图」→ 自己找图发过来<br>
+      · 「打开哔哩哔哩搜安卓」→ 真的去点<br>
+      · 「每天八点提醒我带伞」→ 定时任务<br>
+      · 「看下屏幕上写了什么」→ 读界面 / OCR
+    </div>
+  </div>
+
+  <footer>
+    <a href="https://github.com/Yehua-1145/-QQbot-" target="_blank" rel="noopener">GitHub 仓库</a>
+    ·
+    <a href="https://wwbxc.lanzoub.com/b011mly7ud" target="_blank" rel="noopener">备用下载（蓝奏云）</a>
+    <br>
+    开源 · 非官方工具，请用小号测试
+  </footer>
+</div>
+
+<div class="toast" id="toast">已复制</div>
+
+<script>
+const KEY = "botagent_phone_install_v1";
+const state = JSON.parse(localStorage.getItem(KEY) || "{}");
+const boxes = document.querySelectorAll("input[data-k]");
+
+function toast(m){
+  const t = document.getElementById("toast");
+  t.textContent = m; t.classList.add("on");
+  setTimeout(() => t.classList.remove("on"), 1600);
+}
+
+function refresh(){
+  let done = 0;
+  boxes.forEach(b => {
+    const card = b.closest(".step");
+    if(b.checked){ card.classList.add("done"); done++; }
+    else card.classList.remove("done");
+  });
+  document.getElementById("bar").style.width = (done / boxes.length * 100) + "%";
+  document.getElementById("progtxt").textContent = done + " / " + boxes.length + " 完成";
+}
+
+boxes.forEach(b => {
+  b.checked = !!state[b.dataset.k];
+  b.addEventListener("change", () => {
+    state[b.dataset.k] = b.checked;
+    localStorage.setItem(KEY, JSON.stringify(state));
+    refresh(); toast(b.checked ? "记下了" : "取消");
+  });
+});
+refresh();
+
+document.getElementById("copy").addEventListener("click", async () => {
+  const txt = document.getElementById("cmd").textContent.trim();
+  try{
+    await navigator.clipboard.writeText(txt);
+    toast("已复制，去 Termux 粘贴");
+  }catch(e){
+    const r = document.createRange();
+    r.selectNodeContents(document.getElementById("cmd"));
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    toast("长按选中后手动复制");
+  }
+});
+
+// 简单环境提示
+(function(){
+  const ua = navigator.userAgent;
+  const el = document.getElementById("dev");
+  if(/Android/i.test(ua)) el.textContent = "检测到 Android，可以继续";
+  else if(/iPhone|iPad/i.test(ua)) el.textContent = "这是 iPhone，需要安卓手机";
+  else el.textContent = "建议用手机打开本页";
+})();
+</script>
+</body>
+</html>
