@@ -198,6 +198,32 @@ class Bridge {
     public void openApp(String appUrl, String webUrl) {
         act.runOnUiThread(new AppOpener(act, appUrl, webUrl));
     }
+
+    /** 打开系统「无障碍」设置页，方便用户开启 Botagent 的无障碍服务。 */
+    @JavascriptInterface
+    public void openA11y() {
+        act.runOnUiThread(new A11yOpener(act, false));
+    }
+
+    /** 打开「无障碍」页里的 Botagent 服务详情（部分机型直接可开）。 */
+    @JavascriptInterface
+    public void openA11yDetail() {
+        act.runOnUiThread(new A11yOpener(act, true));
+    }
+
+    /** 无障碍服务是否已开启。 */
+    @JavascriptInterface
+    public boolean a11yEnabled() {
+        try {
+            String cur = android.provider.Settings.Secure.getString(
+                    act.getContentResolver(),
+                    android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+            if (cur == null) return false;
+            return cur.contains("com.phoneagent") && cur.contains("A11yService");
+        } catch (Exception e) {
+            return false;
+        }
+    }
 }
 
 /** 以 root 执行一条命令（丢弃输出，避免管道阻塞）。 */
@@ -307,5 +333,44 @@ class UiToast implements Runnable {
     @Override
     public void run() {
         Toast.makeText(act, text, Toast.LENGTH_SHORT).show();
+    }
+}
+
+/** 打开无障碍设置页。 */
+class A11yOpener implements Runnable {
+
+    private final MainActivity act;
+    private final boolean detail;
+
+    A11yOpener(MainActivity a, boolean detail) {
+        this.act = a;
+        this.detail = detail;
+    }
+
+    @Override
+    public void run() {
+        try {
+            android.content.Intent i;
+            if (detail) {
+                i = new android.content.Intent(
+                        android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                i.putExtra(":settings:fragment_args_key",
+                        "com.phoneagent/com.phoneagent.A11yService");
+                i.putExtra(":settings:show_fragment_args", "");
+            } else {
+                i = new android.content.Intent(
+                        android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            }
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            act.startActivity(i);
+        } catch (Exception e) {
+            try {
+                android.content.Intent i2 = new android.content.Intent(
+                        android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                i2.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                act.startActivity(i2);
+            } catch (Exception ignored) {
+            }
+        }
     }
 }

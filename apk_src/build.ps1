@@ -14,8 +14,9 @@ Remove-Item -Force "$b\base.apk", "$b\aligned.apk", "$b\PhoneAgent.apk", "$b\cla
 New-Item -ItemType Directory -Force -Path "$b\classes", "$b\dexout" | Out-Null
 
 Write-Host '== 2/6 javac ==' -ForegroundColor Cyan
+$srcs = Get-ChildItem -Recurse "$b\src" -Filter *.java | ForEach-Object { $_.FullName }
 & javac -encoding UTF-8 -source 8 -target 8 -bootclasspath $jar -classpath $jar `
-    -d "$b\classes" "$b\src\com\phoneagent\MainActivity.java" 2>&1 | Out-Null
+    -d "$b\classes" $srcs 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Host 'javac 失败' -ForegroundColor Red; exit 1 }
 
 Write-Host '== 3/6 classes.zip（条目必须用 / 分隔）==' -ForegroundColor Cyan

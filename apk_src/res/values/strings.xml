@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Botagent</string>
+    <string name="a11y_desc">让 Botagent 读取屏幕上的文字和按钮，代替你点按、输入、滑动。</string>
+    <string name="a11y_summary">用于让 AI 操作手机（无 root 时使用）。只在本机运行，不上传屏幕内容。</string>
+</resources>

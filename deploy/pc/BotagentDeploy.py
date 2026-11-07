@@ -312,6 +312,44 @@ class Deployer:
         return steps
 
 
+    # ---------- 无障碍（无 root 也能操作手机） ----------
+    A11Y_SVC = "com.phoneagent/com.phoneagent.A11yService"
+
+    def a11y_state(self, serial):
+        rc, out, _ = self.run(["shell", "settings get secure enabled_accessibility_services"],
+                              timeout=20, serial=serial)
+        return (out or "").strip()
+
+    def a11y_enabled(self, serial):
+        cur = self.a11y_state(serial)
+        return "com.phoneagent" in cur and "A11yService" in cur
+
+    def enable_a11y(self, serial, log=None):
+        """adb shell 自带 WRITE_SECURE_SETTINGS，所以不开 root 也能直接开无障碍。"""
+        # 重装 App 后系统会把它标成 crashed，必须先清空再写，才会重新绑定
+        self.run(["shell", "settings put secure enabled_accessibility_services ''"],
+                 timeout=20, serial=serial)
+        self.run(["shell", "settings put secure accessibility_enabled 0"],
+                 timeout=15, serial=serial)
+        cur = ""
+        others = []
+        if cur and cur not in ("null", "None"):
+            others = [x for x in cur.split(":") if x and "com.phoneagent" not in x]
+        others.append(self.A11Y_SVC)
+        val = ":".join(others)
+        self.run(["shell", "settings put secure enabled_accessibility_services " + val],
+                 timeout=25, serial=serial)
+        self.run(["shell", "settings put secure accessibility_enabled 1"],
+                 timeout=20, serial=serial)
+        ok = self.a11y_enabled(serial)
+        if log:
+            log("无障碍服务：" + ("已开启 ✅" if ok else "没开成功，请手动到 设置→无障碍 打开 Botagent"))
+        return ok
+
+    def open_a11y_settings(self, serial):
+        self.run(["shell", "am start -a android.settings.ACCESSIBILITY_SETTINGS"],
+                 timeout=25, serial=serial)
+
     # ---------- 推送手机控制台 App ----------
     CONSOLE_PKGS = ["com.phoneagent"]
 
@@ -1009,6 +1047,17 @@ class App:
                    "token：%s\n（首次显示二维码，扫码登录 QQ）" % token)
             if app_ok:
                 tip += "\n\n手机控制台 App 也装好了，桌面上多了个 Botagent 图标。"
+                try:
+                    self.log("开启无障碍服务（让 AI 能读界面/点屏幕，不用 root）", "info")
+                    a11y_ok = self.d.enable_a11y(
+                        self.serial, log=lambda m: self.log(m, "ok" if "已开启" in m else "warn"))
+                    if a11y_ok:
+                        tip += "\n无障碍已开启：AI 现在能读界面、点屏幕（无 root 也行）。"
+                    else:
+                        tip += ("\n\n无障碍没开成功，手动开一下：\n"
+                                "设置 → 无障碍 → 已下载的服务 → Botagent → 打开")
+                except Exception as e:
+                    self.log("无障碍开启跳过：%s" % e, "warn")
             else:
                 tip += "\n\n控制台 App 没装上：%s\n（不影响使用，浏览器也能进）" % (app_msg or "未知原因")
             # 顺手装 OCR 依赖（失败不影响主功能）

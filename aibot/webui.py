@@ -2154,6 +2154,16 @@ nav div b{display:block;font-size:17px;font-weight:400;margin-bottom:2px}
   </div>
 
   <div class="card">
+    <h2>让 AI 操作手机（无需 root）</h2>
+    <div class="mini">开启无障碍后，AI 能读界面、点屏幕、截图，不用 root。</div>
+    <div class="mini" id="a11ystate" style="margin:8px 0">状态：检查中…</div>
+    <div class="btns">
+      <button onclick="openA11y()">打开无障碍设置</button>
+      <button onclick="checkA11y()">重新检查</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>自动任务</h2>
     <div class="mini">定时让机器人自己干活：每天几点提醒、每隔多久查一次</div>
     <div class="btns"><button onclick="openTasks()">进入自动任务 →</button></div>
@@ -2550,6 +2560,7 @@ document.querySelectorAll("nav div").forEach(d=>{
     document.querySelectorAll("nav div").forEach(x=>x.classList.remove("on"));
     document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
     d.classList.add("on");
+    if(d.dataset.t === "settings" && typeof checkA11y === "function"){ try{ checkA11y(); }catch(e){} }
     $("t-"+d.dataset.t).classList.add("active");
     if(d.dataset.t==="chat"){ setTimeout(function(){ var m=$("msgs"); if(m) m.scrollTop=m.scrollHeight; }, 30); }
     if(d.dataset.t==="status") loadStatus();
@@ -3037,6 +3048,33 @@ async function saveWhitelist(){
 /* ---------------- 自动任务 ---------------- */
 let _tasks = [];
 let _taskState = {};
+
+function a11yBridge(){
+  return (typeof Android !== "undefined" && Android) ? Android : null;
+}
+function checkA11y(){
+  const el = $("a11ystate");
+  const br = a11yBridge();
+  if(!br || typeof br.a11yEnabled !== "function"){
+    if(el) el.textContent = "状态：需要在手机 App 里打开（浏览器看不到）";
+    return;
+  }
+  let on = false;
+  try{ on = br.a11yEnabled(); }catch(e){}
+  if(el){
+    el.textContent = on ? "状态：已开启 ✅" : "状态：没开 ❌ 点下面按钮去开";
+    el.style.color = on ? "#3fb950" : "#f0883e";
+  }
+}
+function openA11y(){
+  const br = a11yBridge();
+  if(br && typeof br.openA11y === "function"){
+    br.openA11y();
+    toast("去「已下载的服务」里找到 Botagent 打开");
+  }else{
+    toast("请在手机设置 → 无障碍 手动打开 Botagent");
+  }
+}
 
 function openTasks(){
   openOverlay("taskpage");

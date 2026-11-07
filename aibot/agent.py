@@ -175,6 +175,164 @@ def _user_persona():
         return ""
 
 
+# ==================== 无障碍通道（无 root 也能读界面/点按） ====================
+A11Y_PORT = 8081
+
+
+def _a11y_alive():
+    """Botagent App 里的无障碍服务在不在（只监听 127.0.0.1）。"""
+    try:
+        r = _a11y_get("/ping", timeout=3)
+        return bool(r.get("ok"))
+    except Exception:
+        return False
+
+
+def _a11y_get(path, timeout=8):
+    import json as _j
+    import urllib.request as _u
+    url = "http://127.0.0.1:%d%s" % (A11Y_PORT, path)
+    with _u.urlopen(url, timeout=timeout) as r:
+        return _j.loads(r.read().decode("utf-8"))
+
+
+def _a11y_post(path, obj, timeout=20):
+    import json as _j
+    import urllib.request as _u
+    url = "http://127.0.0.1:%d%s" % (A11Y_PORT, path)
+    data = _j.dumps(obj, ensure_ascii=False).encode("utf-8")
+    req = _u.Request(url, data=data,
+                     headers={"Content-Type": "application/json; charset=utf-8"},
+                     method="POST")
+    with _u.urlopen(req, timeout=timeout) as r:
+        return _j.loads(r.read().decode("utf-8"))
+
+
+def _a11y_ok_hint():
+    return ("无障碍服务没开。去 手机设置 → 无障碍 → 已下载的服务 → Botagent → 打开，"
+            "或者打开 Botagent App → 设置 → 让 AI 操作手机 → 打开无障碍。")
+
+
+def _fmt_nodes(nodes):
+    lines = []
+    for i, n in enumerate(nodes):
+        t = (n.get("text") or n.get("desc") or "").strip()
+        if not t:
+            continue
+        mark = "·可点" if n.get("clickable") else ""
+        lines.append("%d. %s%s  @(%d,%d)" % (i, t[:60], mark, n.get("x", 0), n.get("y", 0)))
+    if not lines:
+        return "这个界面读不到文字（可能是游戏/图片界面，试试 a11y_shot 截图后让 see 看）"
+    return "\n".join(lines[:40])
+
+
+def t_a11y_dump(query="", limit=30):
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    try:
+        d = _a11y_get("/dump?limit=%d" % max(1, min(int(limit), 60)), timeout=10)
+    except Exception as e:
+        return "读取失败：%s" % e
+    nodes = d.get("nodes") or []
+    if query:
+        q = str(query).lower()
+        nodes = [n for n in nodes
+                 if q in ((n.get("text") or "") + " " + (n.get("desc") or "")).lower()]
+        if not nodes:
+            return "没找到含「%s」的控件。" % query
+    head = "[无障碍] 当前界面 %s，共 %d 项\n" % (d.get("pkg") or "?", len(nodes))
+    return head + _fmt_nodes(nodes)
+
+
+def t_a11y_tap(text="", x=-1, y=-1):
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    payload = {}
+    if text:
+        payload["text"] = str(text)
+    if x >= 0 and y >= 0:
+        payload["x"] = int(x)
+        payload["y"] = int(y)
+    if not payload:
+        return "要给 text，或者 x/y"
+    try:
+        r = _a11y_post("/tap", payload, timeout=15)
+    except Exception as e:
+        return "点击失败：%s" % e
+    if not r.get("ok"):
+        cur = t_a11y_dump(limit=8)
+        return "没点到（%s）。当前可见：\n%s" % (r.get("err"), cur)
+    return "已点击 @(%s,%s)" % (r.get("x"), r.get("y"))
+
+
+def t_a11y_type(text=""):
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    if not text:
+        return "要输入什么？"
+    try:
+        r = _a11y_post("/type", {"text": str(text)}, timeout=15)
+    except Exception as e:
+        return "输入失败：%s" % e
+    if not r.get("ok"):
+        return "没输入进去（%s）：先点一下输入框再试" % r.get("err")
+    return "已输入 %d 个字符" % len(str(text))
+
+
+def t_a11y_swipe(direction="up", distance=500):
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    try:
+        r = _a11y_post("/swipe", {"dir": str(direction), "dist": int(distance)}, timeout=15)
+    except Exception as e:
+        return "滑动失败：%s" % e
+    return "已向 %s 滑 %s" % (direction, "成功" if r.get("ok") else "失败")
+
+
+def t_a11y_key(key="back"):
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    try:
+        r = _a11y_post("/key", {"key": str(key)}, timeout=10)
+    except Exception as e:
+        return "按键失败：%s" % e
+    return {"back": "已返回", "home": "已回桌面", "recents": "打开了最近任务",
+            "notifications": "拉开了通知栏", "quick": "打开了快捷设置"}.get(key, "已执行 %s" % key)
+
+
+def t_a11y_launch(pkg=""):
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    if not pkg:
+        return "要打开哪个包名？"
+    try:
+        r = _a11y_post("/launch", {"pkg": str(pkg)}, timeout=15)
+    except Exception as e:
+        return "打开失败：%s" % e
+    if not r.get("ok"):
+        return "打不开 %s（%s）" % (pkg, r.get("err"))
+    return "已打开 %s" % pkg
+
+
+def t_a11y_shot(scale=1):
+    """无障碍截图（Android 11+，不需要 root）。返回图片路径。"""
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    try:
+        d = _a11y_get("/shot", timeout=20)
+    except Exception as e:
+        return "截图失败：%s" % e
+    if not d.get("ok"):
+        return "截图失败：%s" % d.get("err")
+    import base64 as _b64
+    raw = _b64.b64decode(d["png"])
+    p = "/sdcard/a11y_shot.png"
+    with open(p, "wb") as f:
+        f.write(raw)
+    return "已截图 %sx%s -> %s" % (d.get("w"), d.get("h"), p)
+
+
+
 UI_GUIDE = """
 === 操作手机界面的流程（重要） ===
 要替用户在别的 App 里做事，按这个顺序，不要凭记忆点坐标：
@@ -2158,6 +2316,44 @@ TOOLS_SPEC = [
         "parameters": {"type": "object", "properties": {
             "question": {"type": "string"}}}}},
     {"type": "function", "function": {
+        "name": "a11y_dump",
+        "description": "【无 root 通道】读当前界面（走手机 App 的无障碍服务，比 ui_dump 快且不需要 root）。操作任何 App 前先调这个。",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "只看包含这个词的控件，可省略"},
+            "limit": {"type": "integer", "description": "最多返回几条，默认 30"}}}}},
+    {"type": "function", "function": {
+        "name": "a11y_tap",
+        "description": "【无 root 通道】按文字点击（推荐），也可以给坐标。",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "要点的文字"},
+            "x": {"type": "integer", "description": "坐标 x（配合 y 用）"},
+            "y": {"type": "integer", "description": "坐标 y"}}}}},
+    {"type": "function", "function": {
+        "name": "a11y_type",
+        "description": "【无 root 通道】往当前输入框里填字（要先点一下输入框）。",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string"}}, "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "a11y_swipe",
+        "description": "【无 root 通道】滑动屏幕。",
+        "parameters": {"type": "object", "properties": {
+            "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+            "distance": {"type": "integer", "description": "滑动距离像素，默认 500"}}}}},
+    {"type": "function", "function": {
+        "name": "a11y_key",
+        "description": "【无 root 通道】系统按键：back 返回 / home 桌面 / recents 最近任务 / notifications 通知栏 / quick 快捷设置。",
+        "parameters": {"type": "object", "properties": {
+            "key": {"type": "string", "enum": ["back", "home", "recents", "notifications", "quick"]}}}}},
+    {"type": "function", "function": {
+        "name": "a11y_launch",
+        "description": "【无 root 通道】按包名打开 App（如 com.tencent.mobileqq）。",
+        "parameters": {"type": "object", "properties": {
+            "pkg": {"type": "string"}}, "required": ["pkg"]}}},
+    {"type": "function", "function": {
+        "name": "a11y_shot",
+        "description": "【无 root 通道】截屏（Android 11+，不需要 root），存到 /sdcard/a11y_shot.png。",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
         "name": "ui_dump",
         "description": "读取当前手机界面：返回可识别的文字控件和它们的坐标。操作任何 App 前先调这个，看清有什么再点。",
         "parameters": {"type": "object", "properties": {
@@ -2359,6 +2555,20 @@ def execute_tool(name, a):
                                int(a.get("size", 96)))
         if name == "see":
             return t_see(a.get("question", "屏幕上有什么？关键按钮在哪？"))
+        if name == "a11y_dump":
+            return t_a11y_dump(a.get("query", ""), int(a.get("limit", 30)))
+        if name == "a11y_tap":
+            return t_a11y_tap(a.get("text", ""), int(a.get("x", -1)), int(a.get("y", -1)))
+        if name == "a11y_type":
+            return t_a11y_type(a.get("text", ""))
+        if name == "a11y_swipe":
+            return t_a11y_swipe(a.get("direction", "up"), int(a.get("distance", 500)))
+        if name == "a11y_key":
+            return t_a11y_key(a.get("key", "back"))
+        if name == "a11y_launch":
+            return t_a11y_launch(a.get("pkg", ""))
+        if name == "a11y_shot":
+            return t_a11y_shot()
         if name == "ui_dump":
             return t_ui_dump(a.get("query", ""), int(a.get("limit", 40)),
                              bool(a.get("clickable_only", False)))
