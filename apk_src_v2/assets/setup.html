@@ -134,6 +134,9 @@
     <button id="start">启动机器人</button>
     <button class="ghost" id="open">进入控制台</button>
     <div class="hint" id="starthint"></div>
+    <pre id="rtlog" style="display:none;max-height:220px;overflow:auto;background:#0d1319;
+      border:1px solid #25303b;border-radius:10px;padding:10px;margin-top:12px;
+      font-size:12px;color:#9fe8b0;white-space:pre-wrap"></pre>
   </div>
 
   <div class="card">
@@ -221,8 +224,8 @@ function probeRuntime(){
   let rt = false;
   try{ rt = B && B.runtimeReady ? B.runtimeReady() : false; }catch(e){}
   $("rtdesc").textContent = rt
-    ? "运行时已就绪。"
-    : "运行时还没装好——装好后这里会显示就绪。（当前版本需要先装运行时组件）";
+    ? "运行时已就绪，可以点下面的「启动机器人」。"
+    : "运行时还没解压（首次约 45 MB，点「启动机器人」会自动解压）。";
   return rt;
 }
 
@@ -267,14 +270,30 @@ $("astrbot").onclick = () => {
   }
 };
 
-$("start").onclick = async () => {
-  if(B && B.startRuntime){ 
-    const r = B.startRuntime();
-    toast(r);
+window.rtLog = function(m){
+  const el = $("rtlog");
+  if(!el) return;
+  el.style.display = "block";
+  el.textContent += m + "\n";
+  el.scrollTop = el.scrollHeight;
+};
+window.rtDone = function(m){
+  const h = $("starthint");
+  if(h) h.textContent = m;
+  toast(m);
+};
+
+$("start").onclick = () => {
+  if(B && B.startRuntime){
+    const el = $("rtlog");
+    if(el){ el.textContent = ""; el.style.display = "block"; }
+    $("start").disabled = true;
+    $("start").textContent = "启动中…";
+    toast(B.startRuntime());
+    setTimeout(() => { $("start").disabled = false; $("start").textContent = "启动机器人"; refreshAll(); }, 60000);
   }else{
     toast("运行时装好后再点");
   }
-  setTimeout(refreshAll, 3000);
 };
 
 $("open").onclick = () => {

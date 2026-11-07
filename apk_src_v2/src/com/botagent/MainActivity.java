@@ -155,6 +155,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ---------- 运行时的 UI 反馈 ----------
+    void uiLog(final String msg) {
+        runOnUiThread(new UiEval(this, "rtlog", msg));
+    }
+
+    void uiDone(final String msg) {
+        runOnUiThread(new UiEval(this, "rtdone", msg));
+    }
+
+    void uiRefresh() {
+        runOnUiThread(new UiEval(this, "refresh", ""));
+    }
+
+    void startRuntime(boolean force) {
+        new Thread(new RuntimeManager(this, force)).start();
+    }
+
     boolean astrbotInstalled() {
         try {
             getPackageManager().getPackageInfo("com.astrbot.astrbot_android", 0);
@@ -312,6 +329,18 @@ class Bridge {
     @JavascriptInterface
     public boolean runtimeReady() {
         return act.runtimeReady();
+    }
+
+    @JavascriptInterface
+    public String startRuntime() {
+        act.startRuntime(false);
+        return "开始启动…";
+    }
+
+    @JavascriptInterface
+    public String reinstallRuntime() {
+        act.startRuntime(true);
+        return "重新解压运行时…";
     }
 
     @JavascriptInterface
@@ -497,5 +526,55 @@ class A11yOpener implements Runnable {
             } catch (Exception ignored) {
             }
         }
+    }
+}
+
+/** 在主线程里调 JS（webkit 只能在 UI 线程用）。 */
+class UiEval implements Runnable {
+
+    private final MainActivity act;
+    private final String kind;
+    private final String msg;
+
+    UiEval(MainActivity a, String kind, String msg) {
+        this.act = a;
+        this.kind = kind;
+        this.msg = msg;
+    }
+
+    @Override
+    public void run() {
+        try {
+            String js;
+            if ("rtlog".equals(kind)) {
+                js = "window.rtLog && window.rtLog(" + jsStr(msg) + ")";
+            } else if ("rtdone".equals(kind)) {
+                js = "window.rtDone && window.rtDone(" + jsStr(msg) + ")";
+            } else {
+                js = "window.refreshAll && window.refreshAll()";
+            }
+            act.web.evaluateJavascript(js, null);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static String jsStr(String s) {
+        if (s == null) {
+            return "''";
+        }
+        StringBuilder b = new StringBuilder("'");
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\\' || c == '\'') {
+                b.append('\\').append(c);
+            } else if (c == '\n') {
+                b.append("\\n");
+            } else if (c == '\r') {
+                b.append("");
+            } else {
+                b.append(c);
+            }
+        }
+        return b.append("'").toString();
     }
 }
