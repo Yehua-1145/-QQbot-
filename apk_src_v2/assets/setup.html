@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Botagent</title>
+<style>
+  :root{
+    --bg:#0d1117; --card:#161b22; --line:#25303b; --fg:#e6edf3; --dim:#8b949e;
+    --green:#3fb950; --blue:#2f81f7; --amber:#f0b429; --red:#f85149;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-text-size-adjust:100%}
+  .wrap{padding:18px 16px 40px;max-width:680px;margin:0 auto}
+
+  header{display:flex;align-items:center;gap:12px;padding:6px 0 18px}
+  .logo{width:46px;height:46px;border-radius:12px;background:#0e2233;
+    display:flex;align-items:center;justify-content:center;font-size:22px}
+  .h1{font-size:20px;font-weight:700;line-height:1.2}
+  .h2{font-size:13px;color:var(--dim)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .stat .k{font-size:12.5px;color:var(--dim);margin-bottom:4px}
+  .stat .v{font-size:15px;font-weight:600;display:flex;align-items:center;gap:6px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:0 0 8px}
+  .dot.on{background:var(--green);box-shadow:0 0 8px #3fb95066}
+  .dot.off{background:var(--red)}
+  .dot.warn{background:var(--amber)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  .card h3{margin:0 0 4px;font-size:16.5px}
+  .card p{margin:0 0 12px;color:var(--dim);font-size:13.5px;line-height:1.6}
+
+  label{display:block;font-size:13px;color:var(--dim);margin:10px 0 5px}
+  input{width:100%;padding:13px 14px;border-radius:11px;border:1px solid var(--line);
+    background:#0d1319;color:var(--fg);font-size:16px;font-family:inherit}
+  input:focus{outline:none;border-color:var(--blue)}
+
+  button{width:100%;padding:14px;border-radius:12px;border:0;font-size:16px;font-weight:600;
+    font-family:inherit;background:var(--blue);color:#fff;margin-top:12px}
+  button.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+  button.green{background:#238636}
+  button:disabled{opacity:.5}
+
+  .row{display:flex;gap:10px}
+  .row button{margin-top:12px}
+
+  .hint{font-size:12.5px;color:var(--dim);margin-top:10px;line-height:1.6}
+  .warnbox{border-left:3px solid var(--amber);background:#1a1710;color:#e3c98d;
+    padding:10px 12px;border-radius:0 8px 8px 0;font-size:13px;margin-top:12px}
+
+  .steps{counter-reset:s;padding:0;margin:6px 0 0;list-style:none}
+  .steps li{counter-increment:s;position:relative;padding:10px 0 10px 34px;
+    font-size:14px;color:var(--dim);border-bottom:1px dashed #1f2731}
+  .steps li:last-child{border-bottom:0}
+  .steps li:before{content:counter(s);position:absolute;left:0;top:9px;
+    width:22px;height:22px;border-radius:50%;border:1.5px solid var(--blue);color:var(--blue);
+    font-size:12px;display:flex;align-items:center;justify-content:center}
+  .steps li b{color:var(--fg)}
+
+  .toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%) translateY(16px);
+    background:#238636;color:#fff;padding:10px 18px;border-radius:20px;font-size:14px;
+    opacity:0;transition:.25s;pointer-events:none}
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">🐟</div>
+    <div>
+      <div class="h1">Botagent</div>
+      <div class="h2" id="sub">正在检查环境…</div>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="stat">
+      <div class="k">无障碍（读界面/点屏幕）</div>
+      <div class="v"><span class="dot" id="d-a11y"></span><span id="v-a11y">检查中</span></div>
+    </div>
+    <div class="stat">
+      <div class="k">QQ 协议端</div>
+      <div class="v"><span class="dot" id="d-qq"></span><span id="v-qq">检查中</span></div>
+    </div>
+    <div class="stat">
+      <div class="k">本地服务 8080</div>
+      <div class="v"><span class="dot" id="d-web"></span><span id="v-web">检查中</span></div>
+    </div>
+    <div class="stat">
+      <div class="k">配置</div>
+      <div class="v"><span class="dot" id="d-cfg"></span><span id="v-cfg">未填写</span></div>
+    </div>
+  </div>
+
+  <!-- 配置 -->
+  <div class="card">
+    <h3>① 填两个空</h3>
+    <p>QQ 号是你的账号（建议小号）；API Key 用 DeepSeek / OpenAI / 通义都行。</p>
+    <label>你的 QQ 号</label>
+    <input id="qq" inputmode="numeric" placeholder="123456789" autocomplete="off">
+    <label>API Key</label>
+    <input id="key" type="password" placeholder="sk-..." autocomplete="off">
+    <button class="green" id="save">保存</button>
+    <div class="hint">填完点保存，之后可以随时回来改。</div>
+  </div>
+
+  <!-- 无障碍 -->
+  <div class="card">
+    <h3>② 开无障碍（让 AI 能操作手机）</h3>
+    <p>开了之后，AI 能读屏幕上的字、替你点按、截图。不开也能聊天，只是不能操作手机。</p>
+    <button id="a11y">打开无障碍设置</button>
+    <div class="hint">到「已下载的服务」里找到 <b>Botagent</b> 打开，然后按返回键回来，状态会自动变绿。</div>
+  </div>
+
+  <!-- QQ 协议端 -->
+  <div class="card" id="qqcard">
+    <h3>③ QQ 协议端</h3>
+    <p id="qqdesc">QQ 登录靠它。检测中…</p>
+    <button class="ghost" id="astrbot">去下载 AstrBot（约 95 MB）</button>
+    <div class="warnbox">装完在 AstrBot 里扫码登录 QQ，并把 <b>WebSocket 端口改成 3001</b>。</div>
+  </div>
+
+  <!-- 运行时 / 启动 -->
+  <div class="card">
+    <h3>④ 启动</h3>
+    <p id="rtdesc">检查运行时…</p>
+    <button id="start">启动机器人</button>
+    <button class="ghost" id="open">进入控制台</button>
+    <div class="hint" id="starthint"></div>
+  </div>
+
+  <div class="card">
+    <h3>装好之后能干什么</h3>
+    <ul class="steps">
+      <li><b>「还剩多少电」</b> → 真去查手机电量</li>
+      <li><b>「来张图」</b> → 自己找图发过来</li>
+      <li><b>「打开哔哩哔哩搜安卓」</b> → 真的去点屏幕</li>
+      <li><b>「每天八点提醒我带伞」</b> → 定时任务</li>
+    </ul>
+  </div>
+
+</div>
+
+<div class="toast" id="toast">已保存</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const B = (typeof Android !== "undefined") ? Android : null;
+
+function toast(m){
+  const t = $("toast"); t.textContent = m; t.classList.add("on");
+  setTimeout(() => t.classList.remove("on"), 1600);
+}
+function setDot(dot, val, text, cls){
+  const d = $(dot), v = $(val);
+  if(d){ d.className = "dot " + (cls || ""); }
+  if(v){ v.textContent = text; }
+}
+
+// ---------- 状态 ----------
+async function probeWeb(){
+  try{
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 2500);
+    const r = await fetch("http://127.0.0.1:8080/api/qq", {cache:"no-store", signal: ctl.signal});
+    clearTimeout(t);
+    const d = await r.json();
+    setDot("d-web", "v-web", "在线", "on");
+    return d;
+  }catch(e){
+    setDot("d-web", "v-web", "未启动", "off");
+    return null;
+  }
+}
+
+function probeA11y(){
+  if(!B || typeof B.a11yEnabled !== "function"){
+    setDot("d-a11y", "v-a11y", "未知", "warn"); return;
+  }
+  let on = false;
+  try{ on = B.a11yEnabled(); }catch(e){}
+  setDot("d-a11y", "v-a11y", on ? "已开启" : "未开启", on ? "on" : "off");
+}
+
+function probeAstrbot(){
+  let has = false;
+  try{ has = B && B.astrbotInstalled ? B.astrbotInstalled() : false; }catch(e){}
+  if(has){
+    setDot("d-qq", "v-qq", "已安装", "on");
+    $("qqdesc").textContent = "已检测到 AstrBot。打开它扫码登录 QQ，端口设成 3001。";
+    $("astrbot").textContent = "打开 AstrBot";
+  }else{
+    setDot("d-qq", "v-qq", "未安装", "off");
+    $("qqdesc").textContent = "没检测到 AstrBot。QQ 登录靠它（自带 QQ + NapCat，无需 root）。";
+    $("astrbot").textContent = "去下载 AstrBot（约 95 MB）";
+  }
+  return has;
+}
+
+function probeConfig(){
+  let cfg = null;
+  try{ cfg = B && B.getConfig ? JSON.parse(B.getConfig()) : null; }catch(e){}
+  if(cfg && cfg.owner_uid){
+    setDot("d-cfg", "v-cfg", "已填 QQ " + cfg.owner_uid, "on");
+    $("qq").value = cfg.owner_uid || "";
+    if(cfg.api_key){ $("key").value = cfg.api_key.startsWith("sk-") ? "已保存" : cfg.api_key; }
+  }else{
+    setDot("d-cfg", "v-cfg", "未填写", "off");
+  }
+  return cfg;
+}
+
+function probeRuntime(){
+  let rt = false;
+  try{ rt = B && B.runtimeReady ? B.runtimeReady() : false; }catch(e){}
+  $("rtdesc").textContent = rt
+    ? "运行时已就绪。"
+    : "运行时还没装好——装好后这里会显示就绪。（当前版本需要先装运行时组件）";
+  return rt;
+}
+
+async function refreshAll(){
+  probeA11y(); probeAstrbot(); probeConfig(); probeRuntime();
+  const d = await probeWeb();
+  if(d){
+    $("sub").textContent = "本地服务运行中" + (d.online ? "，QQ 在线" : "，QQ 未登录");
+  }else{
+    $("sub").textContent = "本地服务未启动";
+  }
+}
+refreshAll();
+setInterval(refreshAll, 8000);
+
+// ---------- 交互 ----------
+$("save").onclick = () => {
+  const qq = ($("qq").value || "").trim();
+  let key = ($("key").value || "").trim();
+  if(key === "已保存") key = "";
+  if(!/^\d{5,12}$/.test(qq)){ toast("QQ 号要纯数字"); return; }
+  if(!B || !B.saveConfig){ toast("请在 App 里操作"); return; }
+  const r = B.saveConfig(qq, key);
+  toast(r === "ok" ? "已保存" : ("保存失败：" + r));
+  refreshAll();
+};
+
+$("a11y").onclick = () => {
+  if(B && B.openA11y){ B.openA11y(); } else { toast("请在 App 里操作"); }
+  setTimeout(() => { probeA11y(); }, 1200);
+};
+
+$("astrbot").onclick = () => {
+  if(B && B.astrbotInstalled && B.astrbotInstalled()){
+    if(B.openAstrbot) B.openAstrbot();
+  }else{
+    if(B && B.openUrl) B.openUrl("https://github.com/MuFengDR/AstrBot-Bubble-Android-App/releases");
+    else toast("请在浏览器打开 GitHub");
+  }
+};
+
+$("start").onclick = async () => {
+  if(B && B.startRuntime){ 
+    const r = B.startRuntime();
+    toast(r);
+  }else{
+    toast("运行时装好后再点");
+  }
+  setTimeout(refreshAll, 3000);
+};
+
+$("open").onclick = () => {
+  if(B && B.openConsole) B.openConsole();
+  else toast("控制台需要本地服务启动");
+};
+
+// 从无障碍设置页回来时刷新
+document.addEventListener("visibilitychange", () => {
+  if(!document.hidden){ setTimeout(refreshAll, 400); }
+});
+</script>
+</body>
+</html>
