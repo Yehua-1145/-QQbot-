@@ -79,102 +79,90 @@ public class RuntimeManager implements Runnable {
         return s.length() > 120 ? s.substring(0, 120) : s;
     }
 
-    /** 解压 assets/runtime.tar.gz 到 files/rt（tar.gz，纯 Java 解析）。 */
+    /** 解压 assets/runtime.zip 到 files/rt（系统 ZipInputStream，稳）。 */
     private void extractRuntime(File rt) throws Exception {
         rt.mkdirs();
-        InputStream raw = act.getAssets().open("runtime.tar.gz");
-        GZIPInputStream gz = new GZIPInputStream(raw, 1 << 16);
-        TarReader tar = new TarReader(gz);
-
+        java.util.zip.ZipInputStream zis =
+                new java.util.zip.ZipInputStream(
+                        new java.io.BufferedInputStream(act.getAssets().open("runtime.zip"), 1 << 16));
         byte[] buf = new byte[1 << 16];
-        TarReader.Entry e;
         int count = 0;
         long lastLog = 0;
-        String pendingName = null;
-        while ((e = tar.next()) != null) {
-            // pax / GNU 扩展头：不是真文件，名字在它们的内容里
-            if (e.type == 'x' || e.type == 'g' || e.type == 'K') {
-                long left = e.size;
-                while (left > 0) {
-                    int n = tar.read(buf, 0, (int) Math.min(buf.length, left));
-                    if (n <= 0) {
-                        break;
-                    }
-                    left -= n;
-                }
-                continue;
-            }
-            if (e.type == 'L') {
-                java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-                long left = e.size;
-                while (left > 0) {
-                    int n = tar.read(buf, 0, (int) Math.min(buf.length, left));
-                    if (n <= 0) {
-                        break;
-                    }
-                    bo.write(buf, 0, n);
-                    left -= n;
-                }
-                pendingName = new String(bo.toByteArray(), "UTF-8");
-                int z = pendingName.indexOf(0);
-                if (z >= 0) {
-                    pendingName = pendingName.substring(0, z);
-                }
-                pendingName = pendingName.trim();
-                continue;
-            }
-            if (pendingName != null) {
-                e.name = pendingName;
-                pendingName = null;
-            }
-            // tar 里的名字可能是 "./usr/..." 或者空
-            String nm = e.name == null ? "" : e.name;
-            while (nm.startsWith("./")) {
-                nm = nm.substring(2);
-            }
-            if (nm.length() == 0 || nm.equals(".")) {
+        String rootPath = rt.getCanonicalPath();
+        java.util.zip.ZipEntry e;
+        while ((e = zis.getNextEntry()) != null) {
+            String nm = e.getName();
+            if (nm == null || nm.length() == 0 || nm.endsWith("/")) {
                 continue;
             }
             File f = new File(rt, nm);
-            if (!f.getCanonicalPath().startsWith(rt.getCanonicalPath())) {
-                continue;   // 防目录穿越
-            }
-            if (e.isDir()) {
-                f.mkdirs();
-                continue;
-            }
-            if (e.isLink()) {
-                f.getParentFile().mkdirs();
-                try {
-                    Runtime.getRuntime().exec(new String[]{"ln", "-sf", e.link, f.getAbsolutePath()})
-                            .waitFor();
-                } catch (Exception ignored) {
-                }
+            if (!f.getCanonicalPath().startsWith(rootPath)) {
                 continue;
             }
             f.getParentFile().mkdirs();
             FileOutputStream out = new FileOutputStream(f);
-            long left = e.size;
-            while (left > 0) {
-                int n = tar.read(buf, 0, (int) Math.min(buf.length, left));
-                if (n <= 0) {
-                    break;
-                }
+            int n;
+            while ((n = zis.read(buf)) > 0) {
                 out.write(buf, 0, n);
-                left -= n;
             }
             out.close();
-            if ((e.mode & 0111) != 0) {
+            zis.closeEntry();
+
+            // java.util.zip.ZipEntry 拿不到 unix 权限位，按路径判断
+            String lower = nm.toLowerCase();
+            if (lower.startsWith("usr/bin/") || lower.startsWith("usr/libexec/")
+                    || lower.endsWith(".so") || lower.contains(".so.")) {
                 f.setExecutable(true, false);
             }
             count++;
             long now = System.currentTimeMillis();
-            if (now - lastLog > 1500) {
+            if (now - lastLog > 1200) {
                 lastLog = now;
                 act.uiLog("解压中… " + count + " 个文件");
             }
         }
+        zis.close();
         act.uiLog("解压完成，共 " + count + " 个文件");
+
+        // 符号链接：zip 里是普通文件，内容就是目标路径，这里补成软链
+        fixSymlinks(new File(rt, "usr/bin"), rt);
+    }
+
+    /** zip 不保留符号链接类型，按内容重建 usr/bin 下的软链。 */
+    private void fixSymlinks(File bin, File rt) {
+        String[] names = bin.list();
+        if (names == null) {
+            return;
+        }
+        int fixed = 0;
+        for (String n : names) {
+            File f = new File(bin, n);
+            if (f.isDirectory()) {
+                continue;
+            }
+            try {
+                if (f.length() > 256) {
+                    continue;
+                }
+                byte[] body = new byte[(int) f.length()];
+                java.io.FileInputStream in = new java.io.FileInputStream(f);
+                in.read(body);
+                in.close();
+                String target = new String(body, "UTF-8").trim();
+                if (target.startsWith("/") || target.contains("/")
+                        || target.startsWith("python") || target.startsWith("proot")) {
+                    if (target.length() < 200 && !target.contains("\n")) {
+                        Runtime.getRuntime().exec(new String[]{"ln", "-sf", target,
+                                f.getAbsolutePath()}).waitFor();
+                        fixed++;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (fixed > 0) {
+            act.uiLog("修正软链 " + fixed + " 个");
+        }
     }
 
     /** 把 assets/aibot/ 下的程序复制到 files/aibot。 */
@@ -289,100 +277,6 @@ public class RuntimeManager implements Runnable {
         Thread t = new Thread(new LogPump(p, act, script));
         t.setDaemon(true);
         t.start();
-    }
-}
-
-/** 极简 tar 读取（只处理普通文件/目录/符号链接）。 */
-class TarReader {
-
-    private final InputStream in;
-    private final byte[] hdr = new byte[512];
-
-    TarReader(InputStream in) {
-        this.in = in;
-    }
-
-    static class Entry {
-        String name;
-        long size;
-        int mode;
-        char type;
-        String link;
-
-        boolean isDir() {
-            return type == '5' || name.endsWith("/");
-        }
-
-        boolean isLink() {
-            return type == '2';
-        }
-    }
-
-    Entry next() throws Exception {
-        int got = readFully(hdr, 512);
-        if (got <= 0) {
-            return null;
-        }
-        // 连续两个全零块 = 结束
-        boolean allZero = true;
-        for (byte b : hdr) {
-            if (b != 0) {
-                allZero = false;
-                break;
-            }
-        }
-        if (allZero) {
-            return null;
-        }
-        Entry e = new Entry();
-        e.name = str(0, 100);
-        e.mode = (int) oct(100, 8);
-        e.size = oct(124, 12);
-        e.type = (char) hdr[156];
-        String pfx = str(345, 155);
-        if (pfx.length() > 0) {
-            e.name = pfx + "/" + e.name;
-        }
-        if (e.type == '2') {
-            e.link = str(157, 100);
-        }
-        return e;
-    }
-
-    private String str(int off, int len) {
-        int end = off;
-        while (end < off + len && hdr[end] != 0) {
-            end++;
-        }
-        return new String(hdr, off, end - off).trim();
-    }
-
-    private long oct(int off, int len) {
-        String s = str(off, len).trim();
-        if (s.length() == 0) {
-            return 0;
-        }
-        try {
-            return Long.parseLong(s, 8);
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    private int readFully(byte[] b, int len) throws Exception {
-        int got = 0;
-        while (got < len) {
-            int n = in.read(b, got, len - got);
-            if (n <= 0) {
-                break;
-            }
-            got += n;
-        }
-        return got;
-    }
-
-    int read(byte[] b, int off, int len) throws Exception {
-        return in.read(b, off, len);
     }
 }
 
