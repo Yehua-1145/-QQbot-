@@ -130,7 +130,7 @@
   <!-- 运行时 / 启动 -->
   <div class="card">
     <h3>④ 启动</h3>
-    <p id="rtdesc">检查运行时…</p>
+    <p id="rtdesc">检查中…</p>
     <button id="start">启动机器人</button>
     <button class="ghost" id="open">进入控制台</button>
     <div class="hint" id="starthint"></div>
@@ -156,6 +156,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const B = (typeof Android !== "undefined") ? Android : null;
+let webUp = false;
 
 function toast(m){
   const t = $("toast"); t.textContent = m; t.classList.add("on");
@@ -176,9 +177,11 @@ async function probeWeb(){
     clearTimeout(t);
     const d = await r.json();
     setDot("d-web", "v-web", "在线", "on");
+    webUp = true;
     return d;
   }catch(e){
     setDot("d-web", "v-web", "未启动", "off");
+    webUp = false;
     return null;
   }
 }
@@ -221,12 +224,18 @@ function probeConfig(){
 }
 
 function probeRuntime(){
-  let rt = false;
-  try{ rt = B && B.runtimeReady ? B.runtimeReady() : false; }catch(e){}
-  $("rtdesc").textContent = rt
-    ? "运行时已就绪，可以点下面的「启动机器人」。"
-    : "运行时还没解压（首次约 45 MB，点「启动机器人」会自动解压）。";
-  return rt;
+  let hasTermux = false, running = false;
+  try{ hasTermux = B && B.termuxInstalled ? B.termuxInstalled() : false; }catch(e){}
+  const el = $("rtdesc");
+  if(!el) return false;
+  if(webUp){
+    el.textContent = "服务在运行，点「进入控制台」就能用。";
+  }else if(hasTermux){
+    el.textContent = "已装 Termux。点「启动机器人」会复制启动命令并打开 Termux。";
+  }else{
+    el.textContent = "这台手机还没有运行环境：用电脑一键部署，或照引导页手机直装。";
+  }
+  return hasTermux;
 }
 
 async function refreshAll(){
@@ -283,16 +292,27 @@ window.rtDone = function(m){
   toast(m);
 };
 
-$("start").onclick = () => {
-  if(B && B.startRuntime){
-    const el = $("rtlog");
-    if(el){ el.textContent = ""; el.style.display = "block"; }
-    $("start").disabled = true;
-    $("start").textContent = "启动中…";
-    toast(B.startRuntime());
-    setTimeout(() => { $("start").disabled = false; $("start").textContent = "启动机器人"; refreshAll(); }, 60000);
+const START_CMD = "bash ~/aibot/start.sh";
+
+$("start").onclick = async () => {
+  // 1) 服务已经在跑 → 直接进控制台
+  const d = await probeWeb();
+  if(d){ toast("已经在运行了"); $("open").click(); return; }
+
+  // 2) 手机装了 Termux → 复制命令 + 打开 Termux
+  let hasTermux = false;
+  try{ hasTermux = B && B.termuxInstalled ? B.termuxInstalled() : false; }catch(e){}
+
+  if(hasTermux){
+    if(B && B.copyText) B.copyText(START_CMD);
+    if(B && B.openTermux) B.openTermux();
+    const h = $("starthint");
+    if(h) h.textContent = "已复制 " + START_CMD + "，在 Termux 里长按粘贴后回车";
+    toast("命令已复制，去 Termux 粘贴回车");
   }else{
-    toast("运行时装好后再点");
+    const h = $("starthint");
+    if(h) h.textContent = "没检测到 Termux —— 用电脑一键部署，或按引导页手机直装";
+    toast("这台手机还没有运行环境");
   }
 };
 

@@ -181,6 +181,27 @@ public class MainActivity extends Activity {
         }
     }
 
+    boolean termuxInstalled() {
+        try {
+            getPackageManager().getPackageInfo("com.termux", 0);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    void openTermux() {
+        try {
+            android.content.Intent i = getPackageManager()
+                    .getLaunchIntentForPackage("com.termux");
+            if (i != null) {
+                i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     boolean runtimeReady() {
         String[] paths = {
                 getFilesDir() + "/rootfs/usr/bin/python3",
@@ -322,6 +343,27 @@ class Bridge {
                 i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
                 act.startActivity(i);
             }
+        } catch (Exception ignored) {
+        }
+    }
+
+    @JavascriptInterface
+    public boolean termuxInstalled() {
+        return act.termuxInstalled();
+    }
+
+    @JavascriptInterface
+    public void openTermux() {
+        act.runOnUiThread(new TermuxOpener(act));
+    }
+
+    /** 复制文本到剪贴板，方便用户去 Termux 里粘贴。 */
+    @JavascriptInterface
+    public void copyText(String text) {
+        try {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    act.getSystemService(act.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("botagent", text));
         } catch (Exception ignored) {
         }
     }
@@ -576,5 +618,20 @@ class UiEval implements Runnable {
             }
         }
         return b.append("'").toString();
+    }
+}
+
+/** 主线程打开 Termux。 */
+class TermuxOpener implements Runnable {
+
+    private final MainActivity act;
+
+    TermuxOpener(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void run() {
+        act.openTermux();
     }
 }
