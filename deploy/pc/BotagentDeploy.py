@@ -117,7 +117,8 @@ class Deployer:
 
     def push_files(self, src, serial, progress=None):
         """推 .py 和 assets/（开屏图、头像都在这，缺了界面就是空框）。"""
-        files = [f for f in os.listdir(src) if f.endswith(".py")]
+        files = [f for f in os.listdir(src)
+                 if f.endswith(".py") or f.endswith(".sh")]
         total = len(files)
         self.shell("mkdir -p " + PHONE_TMP, serial=serial)
         for i, f in enumerate(files, 1):
@@ -311,6 +312,39 @@ class Deployer:
 
         return steps
 
+
+    # ---------- 无 root 通道：adb run-as 直接进 Termux 执行 ----------
+    TERMUX_BASH = "/data/data/com.termux/files/usr/bin/bash"
+
+    def run_as(self, serial, script_path, timeout=900, stream=None):
+        """用 run-as 在 Termux 里跑一个脚本（Termux 是 debuggable，无需 root）。"""
+        cmd = ["shell", "run-as com.termux %s %s" % (self.TERMUX_BASH, script_path)]
+        return self.run(cmd, timeout=timeout, serial=serial)
+
+    def run_as_sh(self, serial, sh_cmd, timeout=120):
+        """执行一条短命令（自动补 HOME/PREFIX，避免装到错地方）。"""
+        full = ("export HOME=/data/data/com.termux/files/home; "
+                "export PREFIX=/data/data/com.termux/files/usr; "
+                "export PATH=$PREFIX/bin:$PATH; " + sh_cmd)
+        b64 = __import__("base64").b64encode(full.encode()).decode()
+        cmd = ["shell", "run-as com.termux %s -c \"echo %s | %s -d | %s\""
+               % (self.TERMUX_BASH, b64,
+                  "/data/data/com.termux/files/usr/bin/base64", self.TERMUX_BASH)]
+        return self.run(cmd, timeout=timeout, serial=serial)
+
+    def termux_read(self, serial, path, max_bytes=4000):
+        """读 Termux 私有目录里的文件（run-as，不需要 root）。"""
+        rc, out, err = self.run(["shell", "run-as com.termux cat " + path],
+                                timeout=40, serial=serial)
+        if rc != 0 or not out:
+            return ""
+        return out[-max_bytes:]
+
+    def has_run_as(self, serial):
+        rc, out, err = self.run(
+            ["shell", "run-as com.termux " + self.TERMUX_BASH + " -c 'echo RUNAS_OK'"],
+            timeout=30, serial=serial)
+        return rc == 0 and "RUNAS_OK" in (out or "")
 
     # ---------- 无障碍（无 root 也能操作手机） ----------
     A11Y_SVC = "com.phoneagent/com.phoneagent.A11yService"
@@ -646,17 +680,31 @@ class Deployer:
         # 写一个 go.sh，Termux 里只要执行这一条
         go_lines = [
             "#!/data/data/com.termux/files/usr/bin/bash",
+            "# 明确 HOME/PREFIX：run-as 调用时这两个是空的，不设会装到错地方",
+            "export HOME=/data/data/com.termux/files/home",
+            "export PREFIX=/data/data/com.termux/files/usr",
+            "export PATH=$PREFIX/bin:$PATH",
+            "export TMPDIR=$PREFIX/tmp",
             "cd /sdcard/Download/botagent || exit 1",
             "LOG=$HOME/botagent-install.log",
-            "exec > $LOG 2>&1",
+            "exec > >(tee -a $LOG) 2>&1",     # 终端和日志都能看到
             "set -x",
             "termux-wake-lock 2>/dev/null",
-            "termux-setup-storage 2>/dev/null",
-            "pkg update -y >/dev/null 2>&1",
+            # 官方源（默认镜像经常慢到卡死）
+            "printf 'deb https://packages.termux.dev/apt/termux-main stable main\\n' "
+            "> $PREFIX/etc/apt/sources.list",
+            "pkg update -y",
             "pkg install -y python curl proot-distro",
-            "mkdir -p $HOME/aibot/assets && cp -f *.py $HOME/aibot/",
+            "python -m pip install --no-cache-dir websocket-client Pillow numpy",
+            "mkdir -p $HOME/aibot/assets",
+            "cp -f *.py $HOME/aibot/ 2>/dev/null",
+            "cp -f *.sh $HOME/aibot/ 2>/dev/null",
             "cp -f assets/* $HOME/aibot/assets/ 2>/dev/null",
-            "cd $HOME/aibot && bash /sdcard/Download/botagent/install.sh --noninteractive",
+            "chmod +x $HOME/aibot/*.sh 2>/dev/null",
+            "cd $HOME/aibot",
+            "[ -f /sdcard/Download/botagent/install.sh ] && "
+            "bash /sdcard/Download/botagent/install.sh --noninteractive",
+            "pkill -f webui.py 2>/dev/null; pkill -f qq_bot.py 2>/dev/null",
             "nohup python webui.py >> $HOME/aibot/webui.log 2>&1 &",
             "nohup python qq_bot.py >> $HOME/aibot/bot.log 2>&1 &",
             "echo BOTAGENT_DONE",
@@ -676,6 +724,40 @@ class Deployer:
                                 timeout=60, serial=serial)
         steps.append(("写入配置", rc == 0, err))
 
+        # ---- 优先用 run-as 直接跑（不需要 root，也不依赖界面） ----
+        if self.has_run_as(serial):
+            steps.append(("检测 run-as 通道", True, ""))
+            self.log_gui = True
+            runner = threading.Thread(
+                target=self.run_as, args=(serial, "/sdcard/Download/botagent/go.sh"),
+                kwargs={"timeout": 2400}, daemon=True)
+            runner.start()
+
+            LOG = "/data/data/com.termux/files/home/botagent-install.log"
+            seen = 0
+            for i in range(240):          # 最多等 20 分钟
+                time.sleep(5)
+                body = self.termux_read(serial, LOG, max_bytes=20000)
+                if body and len(body) > seen:
+                    for line in body[seen:].splitlines():
+                        line = line.strip()
+                        if line and not line.startswith("+"):
+                            self.log("  " + line[:150], "info")
+                    seen = len(body)
+                if self.port_listening(serial, 8080):
+                    steps.append(("服务已启动", True, ""))
+                    break
+                if progress:
+                    progress(i + 1, 240, "安装中…（日志已同步到窗口）")
+            else:
+                steps.append(("服务已启动", False, "等了 20 分钟 8080 还没起来"))
+
+            # 服务没起来但脚本跑完了，再看一眼 3001
+            if self.port_listening(serial, 3001):
+                steps.append(("NapCat 端口", True, ""))
+            return steps, ""
+
+        # ---- 退路：界面自动化（run-as 不可用时） ----
         if not self.open_termux(serial):
             steps.append(("打开 Termux", False, "没能切到 Termux 前台（手动打开后重试）"))
             return steps, ""
@@ -684,15 +766,19 @@ class Deployer:
         self.type_command(serial, "bash /sdcard/Download/botagent/go.sh")
         steps.append(("触发安装脚本", True, ""))
 
-        # 轮询端口，最多等 240 秒
-        for i in range(48):
+        for i in range(120):
             time.sleep(5)
+            body = self.termux_read(serial, "/data/data/com.termux/files/home/botagent-install.log")
+            if body:
+                tail = [l for l in body.splitlines() if l.strip() and not l.startswith("+")][-3:]
+                for line in tail:
+                    self.log("  " + line.strip()[:150], "info")
             if self.port_listening(serial, 8080):
                 steps.append(("服务已启动", True, ""))
                 return steps, ""
             if progress:
-                progress(i + 1, 48, "等待服务启动…")
-        steps.append(("服务已启动", False, "等了 4 分钟 8080 还没起来"))
+                progress(i + 1, 120, "等待服务启动…")
+        steps.append(("服务已启动", False, "等了 10 分钟 8080 还没起来"))
         return steps, ""
 
     def install_rooted(self, serial, cfg):
