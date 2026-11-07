@@ -81,7 +81,7 @@
 
   <div class="grid">
     <div class="stat">
-      <div class="k">无障碍（读界面/点屏幕）</div>
+      <div class="k">无障碍 读屏/点按</div>
       <div class="v"><span class="dot" id="d-a11y"></span><span id="v-a11y">检查中</span></div>
     </div>
     <div class="stat">
@@ -108,6 +108,7 @@
     <input id="key" type="password" placeholder="sk-..." autocomplete="off">
     <button class="green" id="save">保存</button>
     <div class="hint">填完点保存，之后可以随时回来改。</div>
+    <div class="hint" id="savehint" style="color:#f0b429"></div>
   </div>
 
   <!-- 无障碍 -->
@@ -244,7 +245,10 @@ $("save").onclick = () => {
   if(key === "已保存") key = "";
   if(!/^\d{5,12}$/.test(qq)){ toast("QQ 号要纯数字"); return; }
   if(!B || !B.saveConfig){ toast("请在 App 里操作"); return; }
-  const r = B.saveConfig(qq, key);
+  let r = "?";
+  try{ r = B.saveConfig(qq, key); }catch(e){ r = "异常：" + e; }
+  const h = $("savehint");
+  if(h) h.textContent = (r === "ok") ? "" : ("保存失败：" + r);
   toast(r === "ok" ? "已保存" : ("保存失败：" + r));
   refreshAll();
 };

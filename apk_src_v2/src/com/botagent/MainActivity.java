@@ -126,7 +126,8 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 o = new org.json.JSONObject();
             }
-            int uid = Integer.parseInt(owner);
+            // QQ 号是 10 位，超过 int 范围，必须用 long
+            long uid = Long.parseLong(owner);
             o.put("owner_uid", uid);
             org.json.JSONArray arr = new org.json.JSONArray();
             arr.put(uid);
