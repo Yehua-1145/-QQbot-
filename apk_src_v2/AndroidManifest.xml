@@ -4,7 +4,7 @@
     android:versionCode="2"
     android:versionName="1.5">
 
-    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34" />
+    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="23" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 用来列出并打开其他 App -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
@@ -22,7 +22,8 @@
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:allowBackup="false"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:extractNativeLibs="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

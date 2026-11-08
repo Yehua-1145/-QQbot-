@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # PhoneAgent - DeepSeek with full control over the Android phone
+# ---- 路径根（内置运行时用环境变量指过来，Termux 下保持默认）----
+import os as _os_paths
+_HOME_ROOT = _os_paths.environ.get("BOTAGENT_HOME_ROOT") or "/data/data/com.termux/files/home"
+_PREFIX_ROOT = _os_paths.environ.get("BOTAGENT_PREFIX") or "/data/data/com.termux/files/usr"
+
 import base64
 import http.client
 import json
@@ -32,7 +37,7 @@ def _normalize_base(url):
     return u + "/chat/completions"
 
 
-AIBOT_HOME = "/data/data/com.termux/files/home/aibot"
+AIBOT_HOME = _HOME_ROOT + "/aibot"
 CFG_PATH = os.path.join(AIBOT_HOME, "config.json")
 
 
@@ -408,12 +413,12 @@ def build_system_prompt(mode="normal"):
     else:
         p = SYSTEM_PROMPT + extra
     try:
-        ctx_file = "/data/data/com.termux/files/home/context.md"
+        ctx_file = _HOME_ROOT + "/context.md"
         if os.path.exists(ctx_file):
             with open(ctx_file, "r", encoding="utf-8") as f:
                 p += "\n\n=== Phone context ===\n" + f.read()
         # 长期记忆（AI 自己用 remember 工具写的，最多带 1200 字，避免占太多上下文）
-        mem_file = "/data/data/com.termux/files/home/aibot/memory.md"
+        mem_file = _HOME_ROOT + "/aibot/memory.md"
         if os.path.exists(mem_file):
             with open(mem_file, "r", encoding="utf-8") as f:
                 mem = f.read()[-1200:].strip()
@@ -749,7 +754,7 @@ def t_ui_wait(seconds=1.5, expect_text=""):
 
 
 # ==================== OCR 兜底（WebView / 游戏 / 图片界面） ====================
-PREFIX = "/data/data/com.termux/files/usr"
+PREFIX = _PREFIX_ROOT + ""
 OCR_IMG = "/sdcard/.agent_ocr.png"
 TESS = PREFIX + "/bin/tesseract"
 TESSDATA = PREFIX + "/share/tessdata"
@@ -1328,8 +1333,8 @@ def t_web_search(query, count=5):
 
 # ---------- E-Hentai direct scraping (no app needed) ----------
 EH_UA = "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120 Mobile"
-EH_DIR = "/data/data/com.termux/files/home/eh"
-AIBOT_DIR = "/data/data/com.termux/files/home/aibot"
+EH_DIR = _HOME_ROOT + "/eh"
+AIBOT_DIR = _HOME_ROOT + "/aibot"
 # 闲时预取的图库（prefetch.py 维护，24 小时自动清理）
 IMG_CACHE = "/sdcard/Pictures/大肥鱼图库"   # 与 prefetch.py 一致
 
@@ -1484,8 +1489,8 @@ def t_eh_download(gallery_url, count=10, start=1, random_pick=False):
 
 
 # ---------- JMComic (禁漫天堂) ----------
-JM_DIR = "/data/data/com.termux/files/home/jm"
-JM_LOGIN_FILE = "/data/data/com.termux/files/home/aibot/jm_login.txt"
+JM_DIR = _HOME_ROOT + "/jm"
+JM_LOGIN_FILE = _HOME_ROOT + "/aibot/jm_login.txt"
 _JM_CLIENT = None
 
 
@@ -1547,7 +1552,7 @@ def _jm_reset_client():
     _JM_CLIENT = None
 
 
-SENT_FILE = "/data/data/com.termux/files/home/aibot/sent_albums.json"
+SENT_FILE = _HOME_ROOT + "/aibot/sent_albums.json"
 SENT_KEEP = 21 * 86400       # 21 天内发过的不再优先
 
 
@@ -2013,7 +2018,7 @@ def set_file_sender(cb):
 _BAN_CB = None
 
 
-MEMORY_FILE = "/data/data/com.termux/files/home/aibot/memory.md"
+MEMORY_FILE = _HOME_ROOT + "/aibot/memory.md"
 
 
 def t_remember(text, key=""):

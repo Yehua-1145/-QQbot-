@@ -90,7 +90,7 @@ public class MainActivity extends Activity {
 
     // ---------- 配置读写 ----------
     File configFile() {
-        return new File(getFilesDir(), "config.json");
+        return new File(new File(getFilesDir(), "aibot"), "config.json");
     }
 
     String readConfig() {
@@ -115,6 +115,8 @@ public class MainActivity extends Activity {
 
     String saveConfig(String qq, String apiKey) {
         try {
+            File dir = new File(getFilesDir(), "aibot");
+            dir.mkdirs();
             String owner = qq == null ? "" : qq.trim();
             if (owner.length() == 0) {
                 return "QQ 号为空";
@@ -157,6 +159,15 @@ public class MainActivity extends Activity {
 
     // ---------- 运行时的 UI 反馈 ----------
     void uiLog(final String msg) {
+        // 同时写一份日志文件，方便 adb 侧排查
+        try {
+            java.io.File f = new java.io.File(getFilesDir(), "rt.log");
+            java.io.FileWriter w = new java.io.FileWriter(f, true);
+            w.write(new java.text.SimpleDateFormat("HH:mm:ss")
+                    .format(new java.util.Date()) + "  " + msg + "\n");
+            w.close();
+        } catch (Exception ignored) {
+        }
         runOnUiThread(new UiEval(this, "rtlog", msg));
     }
 
@@ -203,17 +214,10 @@ public class MainActivity extends Activity {
     }
 
     boolean runtimeReady() {
-        String[] paths = {
-                getFilesDir() + "/rootfs/usr/bin/python3",
-                getFilesDir() + "/runtime/bin/python3",
-                getFilesDir() + "/python/bin/python3",
-        };
-        for (String p : paths) {
-            if (new File(p).exists()) {
-                return true;
-            }
-        }
-        return false;
+        // 内置运行时：proot 在 nativeLibraryDir 里就说明这个包带了运行时
+        String dir = getApplicationInfo().nativeLibraryDir;
+        return new File(dir, "libproot.so").exists()
+                && new File(dir, "libpybin.so").exists();
     }
 
     @Override

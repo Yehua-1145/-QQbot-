@@ -10,6 +10,11 @@
 斜杠命令见 /help。
 界面完全在手机本地运行；只有向 DeepSeek 请求时才需要联网。
 """
+# ---- 路径根（内置运行时用环境变量指过来，Termux 下保持默认）----
+import os as _os_paths
+_HOME_ROOT = _os_paths.environ.get("BOTAGENT_HOME_ROOT") or "/data/data/com.termux/files/home"
+_PREFIX_ROOT = _os_paths.environ.get("BOTAGENT_PREFIX") or "/data/data/com.termux/files/usr"
+
 import argparse
 import io
 import os
@@ -19,7 +24,7 @@ import subprocess
 import sys
 import time
 
-AIBOT = "/data/data/com.termux/files/home/aibot"
+AIBOT = _HOME_ROOT + "/aibot"
 MODE_FILE = AIBOT + "/mode.txt"
 QR_SRC = ("/data/data/com.astrbot.astrbot_android/files/usr/var/lib/proot-distro/"
           "installed-rootfs/ubuntu/root/napcat/cache/qrcode.png")

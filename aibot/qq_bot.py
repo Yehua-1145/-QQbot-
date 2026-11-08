@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # PhoneAgent QQ entry - handles text, images and file messages
 # Messages are queued and answered with a minimum interval to avoid spam-bans.
+# ---- 路径根（内置运行时用环境变量指过来，Termux 下保持默认）----
+import os as _os_paths
+_HOME_ROOT = _os_paths.environ.get("BOTAGENT_HOME_ROOT") or "/data/data/com.termux/files/home"
+_PREFIX_ROOT = _os_paths.environ.get("BOTAGENT_PREFIX") or "/data/data/com.termux/files/usr"
+
 import base64
 import html as _html
 import json
@@ -29,7 +34,7 @@ FILE_RELAY_TOKEN = os.environ.get("PHONEAGENT_FILE_RELAY_TOKEN") or ""
 _BOT_CFG = {}
 try:
     import json as _json_cfg
-    with open("/data/data/com.termux/files/home/aibot/config.json", encoding="utf-8") as _f:
+    with open(_HOME_ROOT + "/aibot/config.json", encoding="utf-8") as _f:
         _d = _json_cfg.load(_f)
     if isinstance(_d, dict):
         _BOT_CFG = _d
@@ -90,7 +95,7 @@ if isinstance(_watch_src, (list, tuple)):
     _watch_src = ",".join(str(x) for x in _watch_src)
 WATCH_UIDS = set(int(x) for x in str(_watch_src).split(",") if str(x).strip().isdigit())
 # ---------- 运行时权限（主人可直接改，不用动代码） ----------
-PERMS_FILE = "/data/data/com.termux/files/home/aibot/perms.json"
+PERMS_FILE = _HOME_ROOT + "/aibot/perms.json"
 _perms_cache = {"ts": None, "d": None}
 
 
@@ -232,7 +237,7 @@ def _in_quiet_hours(hour=None):
     return h >= QUIET_START or h < QUIET_END
 
 
-AIBOT_DIR = "/data/data/com.termux/files/home/aibot"
+AIBOT_DIR = _HOME_ROOT + "/aibot"
 MODE_FILE = AIBOT_DIR + "/mode.txt"
 AUDIT_LOG = AIBOT_DIR + "/audit.log"
 
@@ -1976,7 +1981,7 @@ def _cleanup_qr(reason=""):
 
 
 LOG_MAX_MB = 50
-_LOG_PATH = "/data/data/com.termux/files/home/aibot/qq_bot.log"
+_LOG_PATH = _HOME_ROOT + "/aibot/qq_bot.log"
 
 
 def _rotate_log():
@@ -2112,7 +2117,7 @@ def _tasks_load():
     """读 config.json 里的 tasks 和上次执行时间。"""
     try:
         import json as _j
-        with open("/data/data/com.termux/files/home/aibot/config.json", encoding="utf-8") as f:
+        with open(_HOME_ROOT + "/aibot/config.json", encoding="utf-8") as f:
             c = _j.load(f)
         st = c.get("task_state") or {}
         if isinstance(st, dict):
@@ -2126,7 +2131,7 @@ def _tasks_load():
 def _task_state_save():
     try:
         import json as _j
-        p = "/data/data/com.termux/files/home/aibot/config.json"
+        p = _HOME_ROOT + "/aibot/config.json"
         with open(p, encoding="utf-8") as f:
             c = _j.load(f)
         c["task_state"] = _TASK_STATE
@@ -2217,7 +2222,7 @@ def _task_fire(t):
     return "已发送"
 
 
-FORCE_FILE = "/data/data/com.termux/files/home/aibot/task_force.json"
+FORCE_FILE = _HOME_ROOT + "/aibot/task_force.json"
 
 
 def _task_force_pop():

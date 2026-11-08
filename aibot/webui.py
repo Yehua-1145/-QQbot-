@@ -2,6 +2,11 @@
 # PhoneAgent WebUI + control panel
 # 关键点：聊天走 /api/stream（SSE 流式），模型吐第一个字就显示出来，
 # 不用等整段回复生成完。
+# ---- 路径根（内置运行时用环境变量指过来，Termux 下保持默认）----
+import os as _os_paths
+_HOME_ROOT = _os_paths.environ.get("BOTAGENT_HOME_ROOT") or "/data/data/com.termux/files/home"
+_PREFIX_ROOT = _os_paths.environ.get("BOTAGENT_PREFIX") or "/data/data/com.termux/files/usr"
+
 import http.server
 import json
 import os
@@ -19,7 +24,7 @@ DEFAULT_PERSONA = """你叫「蓝色大肥鱼」，是主人的私人 AI 助手�
 不懂就说不懂，不编造。"""
 
 VERSION = "1.1"
-APP_DIR = "/data/data/com.termux/files/home/aibot"
+APP_DIR = _HOME_ROOT + "/aibot"
 
 
 def _port_hex(port):
@@ -176,7 +181,7 @@ def _load_token():
     env = _os.environ.get("PHONEAGENT_TOKEN") or _os.environ.get("BOTAGENT_TOKEN")
     if env:
         return env.strip()
-    path = "/data/data/com.termux/files/home/aibot/webui_token.txt"
+    path = _HOME_ROOT + "/aibot/webui_token.txt"
     try:
         with open(path) as f:
             tok = f.read().strip()
@@ -195,8 +200,8 @@ def _load_token():
 
 
 TOKEN = _load_token()
-PORT = 8080
-MODE_FILE = "/data/data/com.termux/files/home/aibot/mode.txt"
+PORT = int(_os_paths.environ.get("BOTAGENT_PORT") or 8080)
+MODE_FILE = _HOME_ROOT + "/aibot/mode.txt"
 QR_PATH = ("/data/data/com.astrbot.astrbot_android/files/usr/var/lib/proot-distro/"
            "installed-rootfs/ubuntu/root/napcat/cache/qrcode.png")
 
@@ -277,7 +282,7 @@ def _qr_online():
     try:
         import json as _j
         import time as _t
-        st = _j.load(open("/data/data/com.termux/files/home/aibot/qq_state.json", encoding="utf-8"))
+        st = _j.load(open(_HOME_ROOT + "/aibot/qq_state.json", encoding="utf-8"))
         if st.get("online") is not True:
             return False
         ts = int(st.get("ts") or 0)
@@ -344,7 +349,7 @@ def _fast_status():
     # 3) 模式 / 内存：直接读文件
     mode = ""
     try:
-        with open("/data/data/com.termux/files/home/aibot/mode.txt") as fh:
+        with open(_HOME_ROOT + "/aibot/mode.txt") as fh:
             mode = fh.read().strip()
     except Exception:
         pass
@@ -576,7 +581,7 @@ def _remote_html():
     ts = 0
     try:
         import json as _json
-        with open("/data/data/com.termux/files/home/aibot/qq_state.json",
+        with open(_HOME_ROOT + "/aibot/qq_state.json",
                   "r", encoding="utf-8") as f:
             st = _json.load(f)
         online = st.get("online")
@@ -810,7 +815,7 @@ def _act(action, value=""):
 
 
 
-FEEDBACK_LOG = "/data/data/com.termux/files/home/aibot/feedback.jsonl"
+FEEDBACK_LOG = _HOME_ROOT + "/aibot/feedback.jsonl"
 
 
 def _feedback_send(text):
@@ -854,7 +859,7 @@ def _feedback_send(text):
 
 
 # ================= 控制台后端（配置 / 模型 / 日志 / 操作） =================
-CFG_PATH = "/data/data/com.termux/files/home/aibot/config.json"
+CFG_PATH = _HOME_ROOT + "/aibot/config.json"
 GALLERY_DIR = "/sdcard/Pictures/大肥鱼图库"
 
 
@@ -928,7 +933,7 @@ def _model_status():
             "cooldown": 0, "max_steps": 0, "max_tokens": 0}
     try:
         import sys as _sys
-        _sys.path.insert(0, "/data/data/com.termux/files/home/aibot")
+        _sys.path.insert(0, _HOME_ROOT + "/aibot")
         import agent as _a
         url = getattr(_a, "API_URL", "") or ""
         info["base_url"] = url
@@ -961,7 +966,7 @@ def _model_status():
     # 冷却：读取 bot 进程内的降温度（用文件共享）
     try:
         import time as _t
-        with open("/data/data/com.termux/files/home/aibot/api_cooldown.txt") as f:
+        with open(_HOME_ROOT + "/aibot/api_cooldown.txt") as f:
             until = float(f.read().strip() or 0)
         info["cooldown"] = max(0, int(until - _t.time()))
     except Exception:
@@ -1005,8 +1010,8 @@ def _tail(path, n=60):
 def _console_action(action):
     """控制台的按钮实现。全部走 shell，返回 (ok, msg, data)。"""
     import subprocess as _sp
-    A = "/data/data/com.termux/files/home/aibot"
-    PY = "/data/data/com.termux/files/usr/bin/python3"
+    A = _HOME_ROOT + "/aibot"
+    PY = _PREFIX_ROOT + "/bin/python3"
 
     def run(cmd, timeout=90):
         try:
@@ -1186,7 +1191,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                    "ports": [], "mode": "", "qr_mtime": 0, "qr_url": "",
                 "nap_state": "unknown", "nap_phase": "", "uin": ""}
             try:
-                with open("/data/data/com.termux/files/home/aibot/qq_state.json",
+                with open(_HOME_ROOT + "/aibot/qq_state.json",
                           "r", encoding="utf-8") as f:
                     st = _json.load(f)
                 out["online"] = st.get("online")
@@ -1265,12 +1270,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path.startswith("/assets/"):
             import os as _os
             name = _os.path.basename(path)
-            fpath = "/data/data/com.termux/files/home/aibot/assets/" + name
+            fpath = _HOME_ROOT + "/aibot/assets/" + name
             # 原图放 /sdcard/Download/welcome.gif 就优先用它（真·动图）
             if name.endswith(".gif"):
                 for cand in ("/sdcard/Download/welcome.gif",
                              "/sdcard/Pictures/welcome.gif",
-                             "/data/data/com.termux/files/home/aibot/assets/welcome.gif"):
+                             _HOME_ROOT + "/aibot/assets/welcome.gif"):
                     if _os.path.isfile(cand):
                         fpath = cand
                         break
@@ -1338,7 +1343,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # 已经登录成功就不给码了（旧码没用还可能误导）
             try:
                 import json as _j
-                st = _j.load(open("/data/data/com.termux/files/home/aibot/qq_state.json", encoding="utf-8"))
+                st = _j.load(open(_HOME_ROOT + "/aibot/qq_state.json", encoding="utf-8"))
                 if st.get("online") is True:
                     msg = b"already logged in"
                     self.send_response(404)
@@ -1457,7 +1462,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 n = max(10, min(400, int((_q.get("lines") or ["60"])[0])))
             except Exception:
                 pass
-            self._json({"lines": _tail("/data/data/com.termux/files/home/aibot/qq_bot.log", n)})
+            self._json({"lines": _tail(_HOME_ROOT + "/aibot/qq_bot.log", n)})
             return
 
         if path == "/api/control":
@@ -1548,7 +1553,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             try:
                 import json as _j2
-                with open("/data/data/com.termux/files/home/aibot/task_force.json", "w",
+                with open(_HOME_ROOT + "/aibot/task_force.json", "w",
                           encoding="utf-8") as f:
                     _j2.dump({"id": tid}, f)
                 self._json({"ok": True, "msg": "已排队，20 秒内执行"})
@@ -3593,7 +3598,7 @@ try{
 
 if __name__ == "__main__":
     # 单实例：端口占用就说明已有一个在跑，别再起第二个
-    _pidf = "/data/data/com.termux/files/home/aibot/webui.pid"
+    _pidf = _HOME_ROOT + "/aibot/webui.pid"
     try:
         import os as _os
         if _os.path.exists(_pidf):

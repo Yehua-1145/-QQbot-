@@ -123,9 +123,11 @@ public class RuntimeManager implements Runnable {
         }
         zis.close();
         act.uiLog("解压完成，共 " + count + " 个文件");
+        int links = restoreSymlinks(new File(rt, "usr"));
+        act.uiLog("恢复符号链接 " + links + " 个");
 
         // 符号链接：zip 里是普通文件，内容就是目标路径，这里补成软链
-        fixSymlinks(new File(rt, "usr/bin"), rt);
+        // 不修软链：直接跑 lib/ 里的 python，用不到 usr/bin 下的软链
     }
 
     /** zip 不保留符号链接类型，按内容重建 usr/bin 下的软链。 */
@@ -165,19 +167,35 @@ public class RuntimeManager implements Runnable {
         }
     }
 
-    /** 把 assets/aibot/ 下的程序复制到 files/aibot。 */
+    /** 把 assets/aibot/ 下的程序复制到 files/aibot（写死文件名，getAssets().list 不可靠）。 */
+    private static final String[] AIBOT_FILES = {
+            "agent.py", "config.py", "console.py", "prefetch.py", "qq_bot.py", "webui.py"
+    };
+    private static final String[] AIBOT_ASSETS = {"bili_avatar.png", "welcome.gif"};
+
     private void copyAibot(File aibot) throws Exception {
         aibot.mkdirs();
-        String[] list = act.getAssets().list("aibot");
-        if (list == null) {
-            return;
-        }
-        for (String n : list) {
-            if (n.endsWith("/")) {
-                continue;
+        File imgDir = new File(aibot, "assets");
+        imgDir.mkdirs();
+        int ok = 0;
+        for (String n : AIBOT_FILES) {
+            if (copyAsset("aibot/" + n, new File(aibot, n))) {
+                ok++;
             }
-            InputStream in = act.getAssets().open("aibot/" + n);
-            FileOutputStream out = new FileOutputStream(new File(aibot, n));
+        }
+        for (String n : AIBOT_ASSETS) {
+            copyAsset("aibot/assets/" + n, new File(imgDir, n));
+        }
+        act.uiLog("程序文件: " + ok + "/" + AIBOT_FILES.length);
+        if (ok == 0) {
+            throw new RuntimeException("assets 里的程序文件读不到");
+        }
+    }
+
+    private boolean copyAsset(String assetPath, File dest) {
+        try {
+            InputStream in = act.getAssets().open(assetPath);
+            FileOutputStream out = new FileOutputStream(dest);
             byte[] b = new byte[1 << 16];
             int r;
             while ((r = in.read(b)) > 0) {
@@ -185,49 +203,69 @@ public class RuntimeManager implements Runnable {
             }
             in.close();
             out.close();
+            return true;
+        } catch (Exception e) {
+            act.uiLog("拷贝失败 " + assetPath + ": " + e);
+            return false;
         }
     }
 
-    /** 在 proot 里跑 python（把我们的 usr 映射到 Termux 的硬编码前缀）。 */
+
+    /** zip 里软链被存成「内容是目标名的小文件」，这里还原成真正的符号链接。 */
+    private int restoreSymlinks(File usr) {
+        int n = 0;
+        String[] dirs = {"lib", "bin", "libexec"};
+        for (String d : dirs) {
+            File dir = new File(usr, d);
+            File[] files = dir.listFiles();
+            if (files == null) {
+                continue;
+            }
+            for (File f : files) {
+                if (!f.isFile() || f.length() > 256) {
+                    continue;
+                }
+                try {
+                    byte[] b = new byte[(int) f.length()];
+                    java.io.FileInputStream in = new java.io.FileInputStream(f);
+                    in.read(b);
+                    in.close();
+                    String target = new String(b, "UTF-8").trim();
+                    if (target.length() == 0 || target.contains("\n") || target.contains(" ")) {
+                        continue;
+                    }
+                    // 目标必须是个真实文件（同目录或相对路径）
+                    File t = new File(dir, target);
+                    if (!t.exists()) {
+                        continue;
+                    }
+                    if (!target.matches("[\\w./+\\-]+")) {
+                        continue;
+                    }
+                    if (f.delete()) {
+                        android.system.Os.symlink(target, f.getAbsolutePath());
+                        n++;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return n;
+    }
+
+    /** 直接跑内置 python（不用 proot，靠 PYTHONHOME 找标准库）。 */
     private String runPython(File rt, String a1, String a2, int timeoutSec) throws Exception {
-        String home = new File(act.getFilesDir(), "aibot").getAbsolutePath();
-        String prefix = rt.getAbsolutePath() + "/usr";
-        String fakeRoot = rt.getAbsolutePath();
         java.util.List<String> cmd = new java.util.ArrayList<>();
-        cmd.add(rt.getAbsolutePath() + "/usr/bin/proot");
-        cmd.add("--link2symlink");
-        cmd.add("-0");
-        cmd.add("-r");
-        cmd.add(fakeRoot);
-        cmd.add("-b");
-        cmd.add(prefix + ":/data/data/com.termux/files/usr");
-        cmd.add("-b");
-        cmd.add("/dev");
-        cmd.add("-b");
-        cmd.add("/proc");
-        cmd.add("-b");
-        cmd.add("/sys");
-        cmd.add("-w");
-        cmd.add(home);
-        cmd.add("/data/data/com.termux/files/usr/bin/python3");
+        cmd.add(rt.getAbsolutePath() + "/usr/bin/python3");
         cmd.add(a1);
         if (a2 != null) {
             cmd.add(a2);
         }
-
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
-        pb.environment().put("LD_LIBRARY_PATH", prefix + "/lib");
-        pb.environment().put("HOME", home);
-        pb.environment().put("TMPDIR", prefix + "/tmp");
-        pb.environment().put("PROOT_TMP_DIR", prefix + "/tmp");
-        pb.environment().put("PROOT_LOADER", prefix + "/libexec/proot/loader");
-        pb.environment().put("PROOT_NO_SECCOMP", "1");
+        fillEnv(pb, rt);
         Process p = pb.start();
         StringBuilder sb = new StringBuilder();
-        BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
-        String line;
-        long end = System.currentTimeMillis() + timeoutSec * 1000L;
         Thread reader = new Thread(new StreamPump(p.getInputStream(), sb));
         reader.start();
         try {
@@ -238,36 +276,32 @@ public class RuntimeManager implements Runnable {
         return sb.toString();
     }
 
-    private void startService(File rt, File aibot, String script, int which) throws Exception {
-        String home = aibot.getAbsolutePath();
+    /** 内置运行时的环境变量。 */
+    private void fillEnv(ProcessBuilder pb, File rt) {
+        String lib = act.getApplicationInfo().nativeLibraryDir;
         String prefix = rt.getAbsolutePath() + "/usr";
-        java.util.List<String> cmd = new java.util.ArrayList<>();
-        cmd.add(prefix + "/bin/proot");
-        cmd.add("--link2symlink");
-        cmd.add("-0");
-        cmd.add("-r");
-        cmd.add(rt.getAbsolutePath());
-        cmd.add("-b");
-        cmd.add(prefix + ":/data/data/com.termux/files/usr");
-        cmd.add("-b");
-        cmd.add("/dev");
-        cmd.add("-b");
-        cmd.add("/proc");
-        cmd.add("-b");
-        cmd.add("/sys");
-        cmd.add("-w");
-        cmd.add(home);
-        cmd.add("/data/data/com.termux/files/usr/bin/python3");
-        cmd.add(home + "/" + script);
+        String home = act.getFilesDir().getAbsolutePath();
+        pb.environment().put("LD_LIBRARY_PATH", prefix + "/lib");
+        pb.environment().put("PYTHONHOME", prefix);
+        pb.environment().put("PYTHONPATH", prefix + "/lib/python3.14:"
+                + prefix + "/lib/python3.14/site-packages");
+        pb.environment().put("BOTAGENT_HOME_ROOT", home);
+        pb.environment().put("BOTAGENT_PREFIX", prefix);
+        pb.environment().put("HOME", home);
+        pb.environment().put("TMPDIR", act.getCacheDir().getAbsolutePath());
+        pb.environment().put("PATH", lib + ":" + prefix + "/bin:"
+                + "/system/bin:/system/xbin");
+    }
 
+    private void startService(File rt, File aibot, String script, int which) throws Exception {
+        String lib = act.getApplicationInfo().nativeLibraryDir;
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add(lib + "/libpybin.so");
+        cmd.add(aibot.getAbsolutePath() + "/" + script);
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
-        pb.environment().put("LD_LIBRARY_PATH", prefix + "/lib");
-        pb.environment().put("HOME", home);
-        pb.environment().put("TMPDIR", prefix + "/tmp");
-        pb.environment().put("PROOT_TMP_DIR", prefix + "/tmp");
-        pb.environment().put("PROOT_LOADER", prefix + "/libexec/proot/loader");
-        pb.environment().put("PROOT_NO_SECCOMP", "1");
+        pb.directory(aibot);
+        fillEnv(pb, rt);
         Process p = pb.start();
         if (which == 1) {
             webuiProc = p;

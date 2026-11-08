@@ -15,6 +15,11 @@
   python3 prefetch.py --clean     # 只做清理
   python3 prefetch.py --test-r18  # 只测 r18（抓 3 张）
 """
+# ---- 路径根（内置运行时用环境变量指过来，Termux 下保持默认）----
+import os as _os_paths
+_HOME_ROOT = _os_paths.environ.get("BOTAGENT_HOME_ROOT") or "/data/data/com.termux/files/home"
+_PREFIX_ROOT = _os_paths.environ.get("BOTAGENT_PREFIX") or "/data/data/com.termux/files/usr"
+
 import io
 import json
 import os
@@ -25,7 +30,7 @@ import time
 import urllib.parse
 import urllib.request
 
-AIBOT = "/data/data/com.termux/files/home/aibot"
+AIBOT = _HOME_ROOT + "/aibot"
 CACHE = "/sdcard/Pictures/大肥鱼图库"   # 专放相册能直接看的地方
 SAFE_DIR = os.path.join(CACHE, "safe")
 R18_DIR = os.path.join(CACHE, "r18")
@@ -558,7 +563,7 @@ def _r18_enabled():
     """是否允许抓 R18。默认关闭，需要用户在控制台「更多设置」里手动开启。"""
     try:
         import json as _json
-        with open("/data/data/com.termux/files/home/aibot/config.json", encoding="utf-8") as f:
+        with open(_HOME_ROOT + "/aibot/config.json", encoding="utf-8") as f:
             d = _json.load(f)
         return bool(d.get("r18_prefetch"))
     except Exception:

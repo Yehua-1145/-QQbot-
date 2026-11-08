@@ -228,8 +228,12 @@ function probeRuntime(){
   try{ hasTermux = B && B.termuxInstalled ? B.termuxInstalled() : false; }catch(e){}
   const el = $("rtdesc");
   if(!el) return false;
+  let hasRuntime = false;
+  try{ hasRuntime = B && B.runtimeReady ? B.runtimeReady() : false; }catch(e){}
   if(webUp){
     el.textContent = "服务在运行，点「进入控制台」就能用。";
+  }else if(hasRuntime){
+    el.textContent = "内置运行时可用，点「启动机器人」直接跑（不需要 Termux）。";
   }else if(hasTermux){
     el.textContent = "已装 Termux。点「启动机器人」会复制启动命令并打开 Termux。";
   }else{
@@ -299,7 +303,20 @@ $("start").onclick = async () => {
   const d = await probeWeb();
   if(d){ toast("已经在运行了"); $("open").click(); return; }
 
-  // 2) 手机装了 Termux → 复制命令 + 打开 Termux
+  // 2) 这个包自带运行时 → 直接在里面启动（不用 Termux）
+  let hasRuntime = false;
+  try{ hasRuntime = B && B.runtimeReady ? B.runtimeReady() : false; }catch(e){}
+
+  if(hasRuntime){
+    const el = $("rtlog");
+    if(el){ el.textContent = ""; el.style.display = "block"; }
+    const h = $("starthint");
+    if(h) h.textContent = "正在用内置运行时启动…";
+    toast(B.startRuntime ? B.startRuntime() : "启动中");
+    return;
+  }
+
+  // 3) 手机装了 Termux → 复制命令 + 打开 Termux
   let hasTermux = false;
   try{ hasTermux = B && B.termuxInstalled ? B.termuxInstalled() : false; }catch(e){}
 
