@@ -182,6 +182,8 @@ public class Container {
         File rt = new File(ctx.getFilesDir(), "rt");
         java.util.List<String> cmd = new java.util.ArrayList<>();
         cmd.add(rt.getAbsolutePath() + "/usr/bin/proot");
+        // Android 上硬链接会 EACCES（dpkg/apt 都要用），让 proot 用软链代替
+        cmd.add("--link2symlink");
         cmd.add("-r");
         cmd.add(dir().getAbsolutePath());
         cmd.add("-w");
@@ -193,6 +195,15 @@ public class Container {
         cmd.add("/proc");
         cmd.add("-b");
         cmd.add("/sys");
+        // Electron（QQ）需要 /dev/shm，Android 没有，用容器里的目录顶上
+        java.io.File shm = new java.io.File(dir(), "dev/shm");
+        shm.mkdirs();
+        try {
+            android.system.Os.chmod(shm.getAbsolutePath(), 01777);
+        } catch (Exception ignored) {
+        }
+        cmd.add("-b");
+        cmd.add(shm.getAbsolutePath() + ":/dev/shm");
         return cmd;
     }
 

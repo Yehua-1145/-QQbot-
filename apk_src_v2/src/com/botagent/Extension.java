@@ -129,6 +129,8 @@ public class Extension {
             + "universe multiverse\\n' > /etc/apt/sources.list\n"
             + "fi\n";
 
+    // hostUnpackNote：QQ 的 deb 由宿主侧 python 解开（Android 硬链接受限，dpkg 会失败），
+    // 这个脚本只负责装运行库、补依赖。
     static final String QQ_INSTALL = "set -e\n"
             + "export DEBIAN_FRONTEND=noninteractive\n"
             + "echo '== 换国内源 =='\n"
