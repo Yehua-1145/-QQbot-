@@ -66,7 +66,8 @@ public class MainActivity extends Activity {
     // ---------- 页面切换 ----------
     void openConsole() {
         onConsole = true;
-        web.loadUrl(CONSOLE_URL);
+        int p = RuntimeManager.port > 0 ? RuntimeManager.port : 8080;
+        web.loadUrl("http://127.0.0.1:" + p + "/app");
     }
 
     void backToSetup() {
@@ -76,7 +77,8 @@ public class MainActivity extends Activity {
 
     void reloadPage() {
         if (onConsole) {
-            web.loadUrl(CONSOLE_URL);
+            int p = RuntimeManager.port > 0 ? RuntimeManager.port : 8080;
+            web.loadUrl("http://127.0.0.1:" + p + "/app");
         } else {
             web.loadUrl(SETUP_URL);
         }
@@ -180,7 +182,13 @@ public class MainActivity extends Activity {
     }
 
     void startRuntime(boolean force) {
-        new Thread(new RuntimeManager(this, force)).start();
+        android.content.Intent i = new android.content.Intent(this, BotService.class);
+        i.putExtra("force", force);
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            startForegroundService(i);
+        } else {
+            startService(i);
+        }
     }
 
     boolean astrbotInstalled() {
@@ -370,6 +378,26 @@ class Bridge {
             cm.setPrimaryClip(android.content.ClipData.newPlainText("botagent", text));
         } catch (Exception ignored) {
         }
+    }
+
+    @JavascriptInterface
+    public int runPort() {
+        return RuntimeManager.port;
+    }
+
+    @JavascriptInterface
+    public boolean serviceRunning() {
+        return BotService.running;
+    }
+
+    @JavascriptInterface
+    public String serviceState() {
+        return BotService.state;
+    }
+
+    @JavascriptInterface
+    public void stopService() {
+        act.stopService(new android.content.Intent(act, BotService.class));
     }
 
     @JavascriptInterface

@@ -23,52 +23,142 @@ import java.util.zip.GZIPInputStream;
  */
 public class RuntimeManager implements Runnable {
 
-    private final MainActivity act;
+    private final MainActivity act;      // 可能为 null（Service 场景）
+    private final android.content.Context ctx;
     private final boolean force;
+    private final boolean silent;        // true = 日志打到通知栏，不弹页面
 
-    public RuntimeManager(MainActivity a, boolean force) {
-        this.act = a;
-        this.force = force;
-    }
+    /** 实际使用的控制台端口（8080 被占就自动换）。 */
+    public static volatile int port = 8080;
 
-    // 运行中标记
     public static volatile Process webuiProc;
     public static volatile Process botProc;
 
-    @Override
-    public void run() {
+    public RuntimeManager(MainActivity a, boolean force) {
+        this.act = a;
+        this.ctx = a;
+        this.force = force;
+        this.silent = false;
+    }
+
+    public RuntimeManager(android.content.Context c, boolean force, boolean silent) {
+        this.act = null;
+        this.ctx = c;
+        this.force = force;
+        this.silent = silent;
+    }
+
+    private void log(String msg) {
+        if (act != null) {
+            log(msg);
+        } else {
+            android.util.Log.i("botagent", msg);
+        }
+    }
+
+    static boolean isAlive(Process p) {
+        if (p == null) {
+            return false;
+        }
         try {
-            act.uiLog("准备运行时…");
-            File rt = new File(act.getFilesDir(), "rt");
+            p.exitValue();
+            return false;
+        } catch (IllegalThreadStateException e) {
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void done(String msg) {
+        if (act != null) {
+            act.uiDone(msg);
+            act.uiRefresh();
+        } else {
+            android.util.Log.i("botagent", "done: " + msg);
+        }
+    }
+
+    /** 准备运行时 + 起两个进程；成功返回 true。 */
+    public boolean prepare() {
+        try {
+            log("准备运行时…");
+            File rt = new File(ctx.getFilesDir(), "rt");
             File py = new File(rt, "usr/bin/python3");
             if (!py.exists() || force) {
-                act.uiLog("首次启动：解压运行时（约 45 MB）");
+                log("首次启动：解压运行时（约 45 MB）");
                 extractRuntime(rt);
-                act.uiLog("运行时解压完成");
+                log("运行时解压完成");
             } else {
-                act.uiLog("运行时已存在");
+                log("运行时已存在");
             }
-            File aibot = new File(act.getFilesDir(), "aibot");
+            File aibot = new File(ctx.getFilesDir(), "aibot");
             copyAibot(aibot);
-            act.uiLog("程序文件就绪");
+            log("程序文件就绪");
 
-            // 先测一下 python 能不能跑
-            String out = runPython(rt, "-c", "print('PY_OK')", 40);
-            act.uiLog("python 自检: " + oneLine(out));
+            String out = runPython(rt, "-c", "print('PY_OK')", 60);
+            log("python 自检: " + oneLine(out));
             if (!out.contains("PY_OK")) {
-                act.uiDone("运行时启动失败，看下面日志");
-                return;
+                done("python 起不来");
+                return false;
             }
 
+            port = pickPort(8080);
+            log("控制台端口: " + port);
             startService(rt, aibot, "webui.py", 1);
             Thread.sleep(4000);
             startService(rt, aibot, "qq_bot.py", 2);
-            act.uiDone("已启动");
-            act.uiRefresh();
+            done("已启动");
+            return true;
         } catch (Throwable t) {
-            act.uiLog("出错: " + t);
-            act.uiDone("启动失败：" + t);
+            log("出错: " + t);
+            done("启动失败：" + t);
+            return false;
         }
+    }
+
+    /** 只重启挂掉的进程。 */
+    public void restartDead(boolean webAlive, boolean botAlive) {
+        try {
+            File rt = new File(ctx.getFilesDir(), "rt");
+            File aibot = new File(ctx.getFilesDir(), "aibot");
+            if (!webAlive) {
+                log("webui 挂了，重启");
+                startService(rt, aibot, "webui.py", 1);
+            }
+            if (!botAlive) {
+                log("qq_bot 挂了，重启");
+                startService(rt, aibot, "qq_bot.py", 2);
+            }
+        } catch (Throwable t) {
+            log("重启失败: " + t);
+        }
+    }
+
+    @Override
+    public void run() {
+        prepare();
+    }
+
+
+    /** 从 preferred 开始找一个能绑的端口。 */
+    static int pickPort(int preferred) {
+        for (int p = preferred; p < preferred + 12; p++) {
+            java.net.ServerSocket ss = null;
+            try {
+                ss = new java.net.ServerSocket(p, 1, java.net.InetAddress.getByName("127.0.0.1"));
+                return p;
+            } catch (Exception ignored) {
+            } finally {
+                try {
+                    if (ss != null) {
+                        ss.close();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return preferred;
     }
 
     private static String oneLine(String s) {
@@ -84,7 +174,7 @@ public class RuntimeManager implements Runnable {
         rt.mkdirs();
         java.util.zip.ZipInputStream zis =
                 new java.util.zip.ZipInputStream(
-                        new java.io.BufferedInputStream(act.getAssets().open("runtime.zip"), 1 << 16));
+                        new java.io.BufferedInputStream(ctx.getAssets().open("runtime.zip"), 1 << 16));
         byte[] buf = new byte[1 << 16];
         int count = 0;
         long lastLog = 0;
@@ -118,13 +208,13 @@ public class RuntimeManager implements Runnable {
             long now = System.currentTimeMillis();
             if (now - lastLog > 1200) {
                 lastLog = now;
-                act.uiLog("解压中… " + count + " 个文件");
+                log("解压中… " + count + " 个文件");
             }
         }
         zis.close();
-        act.uiLog("解压完成，共 " + count + " 个文件");
+        log("解压完成，共 " + count + " 个文件");
         int links = restoreSymlinks(new File(rt, "usr"));
-        act.uiLog("恢复符号链接 " + links + " 个");
+        log("恢复符号链接 " + links + " 个");
 
         // 符号链接：zip 里是普通文件，内容就是目标路径，这里补成软链
         // 不修软链：直接跑 lib/ 里的 python，用不到 usr/bin 下的软链
@@ -163,7 +253,7 @@ public class RuntimeManager implements Runnable {
             }
         }
         if (fixed > 0) {
-            act.uiLog("修正软链 " + fixed + " 个");
+            log("修正软链 " + fixed + " 个");
         }
     }
 
@@ -186,7 +276,7 @@ public class RuntimeManager implements Runnable {
         for (String n : AIBOT_ASSETS) {
             copyAsset("aibot/assets/" + n, new File(imgDir, n));
         }
-        act.uiLog("程序文件: " + ok + "/" + AIBOT_FILES.length);
+        log("程序文件: " + ok + "/" + AIBOT_FILES.length);
         if (ok == 0) {
             throw new RuntimeException("assets 里的程序文件读不到");
         }
@@ -194,7 +284,7 @@ public class RuntimeManager implements Runnable {
 
     private boolean copyAsset(String assetPath, File dest) {
         try {
-            InputStream in = act.getAssets().open(assetPath);
+            InputStream in = ctx.getAssets().open(assetPath);
             FileOutputStream out = new FileOutputStream(dest);
             byte[] b = new byte[1 << 16];
             int r;
@@ -205,7 +295,7 @@ public class RuntimeManager implements Runnable {
             out.close();
             return true;
         } catch (Exception e) {
-            act.uiLog("拷贝失败 " + assetPath + ": " + e);
+            log("拷贝失败 " + assetPath + ": " + e);
             return false;
         }
     }
@@ -278,23 +368,24 @@ public class RuntimeManager implements Runnable {
 
     /** 内置运行时的环境变量。 */
     private void fillEnv(ProcessBuilder pb, File rt) {
-        String lib = act.getApplicationInfo().nativeLibraryDir;
+        String lib = ctx.getApplicationInfo().nativeLibraryDir;
         String prefix = rt.getAbsolutePath() + "/usr";
-        String home = act.getFilesDir().getAbsolutePath();
+        String home = ctx.getFilesDir().getAbsolutePath();
         pb.environment().put("LD_LIBRARY_PATH", prefix + "/lib");
         pb.environment().put("PYTHONHOME", prefix);
         pb.environment().put("PYTHONPATH", prefix + "/lib/python3.14:"
                 + prefix + "/lib/python3.14/site-packages");
         pb.environment().put("BOTAGENT_HOME_ROOT", home);
         pb.environment().put("BOTAGENT_PREFIX", prefix);
+        pb.environment().put("BOTAGENT_PORT", String.valueOf(port));
         pb.environment().put("HOME", home);
-        pb.environment().put("TMPDIR", act.getCacheDir().getAbsolutePath());
+        pb.environment().put("TMPDIR", ctx.getCacheDir().getAbsolutePath());
         pb.environment().put("PATH", lib + ":" + prefix + "/bin:"
                 + "/system/bin:/system/xbin");
     }
 
     private void startService(File rt, File aibot, String script, int which) throws Exception {
-        String lib = act.getApplicationInfo().nativeLibraryDir;
+        String lib = ctx.getApplicationInfo().nativeLibraryDir;
         java.util.List<String> cmd = new java.util.ArrayList<>();
         cmd.add(lib + "/libpybin.so");
         cmd.add(aibot.getAbsolutePath() + "/" + script);
@@ -360,7 +451,7 @@ class LogPump implements Runnable {
                     new InputStreamReader(proc.getInputStream()));
             String line;
             while ((line = r.readLine()) != null) {
-                act.uiLog("[" + tag + "] " + line);
+                android.util.Log.i("botagent", "[" + tag + "] " + line);
             }
         } catch (Exception ignored) {
         }
