@@ -96,6 +96,10 @@
       <div class="k">配置</div>
       <div class="v"><span class="dot" id="d-cfg"></span><span id="v-cfg">未填写</span></div>
     </div>
+    <div class="stat">
+      <div class="k">省电白名单</div>
+      <div class="v"><span class="dot" id="d-batt"></span><span id="v-batt">检查中</span></div>
+    </div>
   </div>
 
   <!-- 配置 -->
@@ -137,6 +141,20 @@
     <pre id="rtlog" style="display:none;max-height:220px;overflow:auto;background:#0d1319;
       border:1px solid #25303b;border-radius:10px;padding:10px;margin-top:12px;
       font-size:12px;color:#9fe8b0;white-space:pre-wrap"></pre>
+  </div>
+
+  <!-- 省电白名单 -->
+  <div class="card">
+    <h3>⑤ 省电白名单（重要）</h3>
+    <p>安卓会把后台 App 杀掉。不加白名单的话，锁屏一两个小时后机器人就没了。</p>
+    <button id="batt">关闭电池优化</button>
+    <button class="ghost" id="autostart">打开「自启动」设置</button>
+    <button class="ghost" id="appset">打开应用详情</button>
+    <div class="hint" id="batthint">
+      小米：自启动打开 + 省电策略设「无限制」<br>
+      华为：应用启动管理 → 手动管理 → 允许后台活动<br>
+      其它：电池优化里把 Botagent 设为「不限制」
+    </div>
   </div>
 
   <div class="card">
@@ -225,6 +243,13 @@ function probeConfig(){
   return cfg;
 }
 
+function probeBattery(){
+  let ok = false;
+  try{ ok = B && B.batteryOk ? B.batteryOk() : false; }catch(e){}
+  setDot("d-batt", "v-batt", ok ? "已加入" : "未加入", ok ? "on" : "warn");
+  return ok;
+}
+
 function probeRuntime(){
   let hasTermux = false, running = false;
   try{ hasTermux = B && B.termuxInstalled ? B.termuxInstalled() : false; }catch(e){}
@@ -245,7 +270,7 @@ function probeRuntime(){
 }
 
 async function refreshAll(){
-  probeA11y(); probeAstrbot(); probeConfig(); probeRuntime();
+  probeA11y(); probeAstrbot(); probeConfig(); probeRuntime(); probeBattery();
   const d = await probeWeb();
   if(d){
     $("sub").textContent = "本地服务运行中" + (d.online ? "，QQ 在线" : "，QQ 未登录");
@@ -299,6 +324,21 @@ window.rtDone = function(m){
 };
 
 const START_CMD = "bash ~/aibot/start.sh";
+
+$("batt").onclick = () => {
+  try{
+    if(B && B.batteryOk && B.batteryOk()){ toast("已经在白名单里了"); return; }
+    if(B && B.requestBattery) B.requestBattery();
+  }catch(e){ toast("打不开系统页面"); }
+};
+
+$("autostart").onclick = () => {
+  try{ if(B && B.openAutoStart) B.openAutoStart(); }catch(e){}
+};
+
+$("appset").onclick = () => {
+  try{ if(B && B.openAppSettings) B.openAppSettings(); }catch(e){}
+};
 
 $("start").onclick = async () => {
   // 1) 服务已经在跑 → 直接进控制台

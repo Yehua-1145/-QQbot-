@@ -221,6 +221,60 @@ public class MainActivity extends Activity {
         }
     }
 
+    boolean batteryOk() {
+        try {
+            android.os.PowerManager pm =
+                    (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            return pm.isIgnoringBatteryOptimizations(getPackageName());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    void requestBattery() {
+        try {
+            android.content.Intent i = new android.content.Intent(
+                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    android.net.Uri.parse("package:" + getPackageName()));
+            startActivity(i);
+        } catch (Exception e) {
+            openAppSettings();
+        }
+    }
+
+    void openAppSettings() {
+        try {
+            android.content.Intent i = new android.content.Intent(
+                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:" + getPackageName()));
+            startActivity(i);
+        } catch (Exception ignored) {
+        }
+    }
+
+    void openAutoStart() {
+        // 各家 ROM 的「自启动管理」入口，找不到就退回应用详情页
+        String[] acts = {
+                "com.miui.securitycenter/com.miui.permcenter.autostart.AutoStartManagementActivity",
+                "com.miui.powerkeeper/com.miui.powerkeeper.ui.HiddenAppsConfigActivity",
+                "com.huawei.systemmanager/.startupmgr.ui.StartupNormalAppListActivity",
+                "com.coloros.safecenter/.startupapp.StartupAppListActivity",
+                "com.oppo.safe/.permission.startup.StartupAppListActivity",
+                "com.vivo.permissionmanager/.activity.BgStartUpManagerActivity",
+        };
+        for (String a : acts) {
+            try {
+                android.content.Intent i = new android.content.Intent();
+                i.setComponent(android.content.ComponentName.unflattenFromString(a));
+                i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+                return;
+            } catch (Exception ignored) {
+            }
+        }
+        openAppSettings();
+    }
+
     boolean runtimeReady() {
         // 有 assets/runtime.zip 就算带运行时（不再依赖 lib/ 里的二进制）
         try {
@@ -386,6 +440,26 @@ class Bridge {
     @JavascriptInterface
     public int runPort() {
         return RuntimeManager.port;
+    }
+
+    @JavascriptInterface
+    public boolean batteryOk() {
+        return act.batteryOk();
+    }
+
+    @JavascriptInterface
+    public void requestBattery() {
+        act.runOnUiThread(new BatteryRequester(act));
+    }
+
+    @JavascriptInterface
+    public void openAppSettings() {
+        act.runOnUiThread(new SettingsOpener(act, false));
+    }
+
+    @JavascriptInterface
+    public void openAutoStart() {
+        act.runOnUiThread(new SettingsOpener(act, true));
     }
 
     @JavascriptInterface
@@ -668,5 +742,41 @@ class TermuxOpener implements Runnable {
     @Override
     public void run() {
         act.openTermux();
+    }
+}
+
+/** 主线程请求忽略电池优化。 */
+class BatteryRequester implements Runnable {
+
+    private final MainActivity act;
+
+    BatteryRequester(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void run() {
+        act.requestBattery();
+    }
+}
+
+/** 主线程打开系统设置页（自启动 / 应用详情）。 */
+class SettingsOpener implements Runnable {
+
+    private final MainActivity act;
+    private final boolean autoStart;
+
+    SettingsOpener(MainActivity a, boolean auto) {
+        this.act = a;
+        this.autoStart = auto;
+    }
+
+    @Override
+    public void run() {
+        if (autoStart) {
+            act.openAutoStart();
+        } else {
+            act.openAppSettings();
+        }
     }
 }
