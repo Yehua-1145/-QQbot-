@@ -34,6 +34,10 @@ public class MainActivity extends Activity {
     static final String CONSOLE_URL = "http://127.0.0.1:8080/app";
 
     WebView web;
+    android.widget.FrameLayout root;
+    android.widget.FrameLayout navBar;
+    android.widget.TextView prevBtn;
+    android.widget.TextView nextBtn;
     boolean onConsole = false;
 
     @Override
@@ -58,20 +62,108 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new PageClient(this));
         web.addJavascriptInterface(new Bridge(this), "Android");
         getWindow().setBackgroundDrawable(
-                new android.graphics.drawable.ColorDrawable(0xFF0D1117));
-        setContentView(web);
+                new android.graphics.drawable.ColorDrawable(0xFF08181b));
+
+        // 外层 FrameLayout：WebView 铺满，底部叠一条原生导航（不依赖 HTML 定位）
+        root = new android.widget.FrameLayout(this);
+        root.setBackgroundColor(0xFF08181b);
+        root.addView(web, new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+
+        navBar = buildNavBar();
+        android.widget.FrameLayout.LayoutParams navLp =
+                new android.widget.FrameLayout.LayoutParams(
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                        android.view.Gravity.BOTTOM);
+        root.addView(navBar, navLp);
+        setContentView(root);
+
         web.loadUrl(SETUP_URL);
     }
 
+    /** 原生底部导航：左「上一步」，中间「下一步」。 */
+    private android.widget.FrameLayout buildNavBar() {
+        float d = getResources().getDisplayMetrics().density;
+
+        android.widget.FrameLayout bar = new android.widget.FrameLayout(this);
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                        new int[]{0xF20B2226, 0xFF071619});
+        bg.setStroke((int) (1 * d), 0x14FFFFFF);
+        bar.setBackground(bg);
+
+        int padH = (int) (16 * d), padV = (int) (12 * d);
+        bar.setPadding(padH, padV, padH, padV + (int) (12 * d));
+
+        // 上一步（左下，文字按钮）
+        prevBtn = new android.widget.TextView(this);
+        prevBtn.setText("\u2039");          // ‹
+        prevBtn.setTextSize(24f);
+        prevBtn.setTextColor(0xFF8FB3B7);
+        prevBtn.setGravity(android.view.Gravity.CENTER);
+        prevBtn.setContentDescription("上一步");
+        prevBtn.setOnClickListener(new NavPrev(this));
+        android.widget.FrameLayout.LayoutParams prevLp =
+                new android.widget.FrameLayout.LayoutParams(
+                        (int) (44 * d), (int) (44 * d),
+                        android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+        prevLp.leftMargin = (int) (4 * d);
+        bar.addView(prevBtn, prevLp);
+
+        // 下一步（正中，青色胶囊）
+        nextBtn = new android.widget.TextView(this);
+        nextBtn.setText("下一步");
+        nextBtn.setTextSize(15.5f);
+        nextBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+        nextBtn.setTextColor(0xFF04211F);
+        nextBtn.setGravity(android.view.Gravity.CENTER);
+        nextBtn.setPadding(0, (int) (15 * d), 0, (int) (15 * d));
+        android.graphics.drawable.GradientDrawable pill =
+                new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                        new int[]{0xFF2EE6D6, 0xFF12B3A2});
+        pill.setCornerRadius(14 * d);
+        nextBtn.setBackground(pill);
+        nextBtn.setOnClickListener(new NavNext(this));
+        android.widget.FrameLayout.LayoutParams nextLp =
+                new android.widget.FrameLayout.LayoutParams(
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                        android.view.Gravity.CENTER);
+        nextLp.leftMargin = (int) (48 * d);
+        nextLp.rightMargin = (int) (48 * d);
+        bar.addView(nextBtn, nextLp);
+
+        bar.setVisibility(android.view.View.GONE);
+        return bar;
+    }
+
+    /** JS 告诉原生当前在第几步（1..4，5=完成页）。 */
+    void syncNav(int step, int total) {
+        if (navBar == null) {
+            return;
+        }
+        runOnUiThread(new NavSync(this, step, total));
+    }
+
     // ---------- 页面切换 ----------
+    void showNav(final boolean on) {
+        runOnUiThread(new NavToggle(this, on));
+    }
+
     void openConsole() {
         onConsole = true;
+        showNav(false);
         // 用自己的控制台界面（不再把 webui 的网页塞进 WebView）
         web.loadUrl("file:///android_asset/console.html");
     }
 
     void backToSetup() {
         onConsole = false;
+        showNav(true);
         web.loadUrl(SETUP_URL);
     }
 
@@ -537,6 +629,16 @@ class Bridge {
             cm.setPrimaryClip(android.content.ClipData.newPlainText("botagent", text));
         } catch (Exception ignored) {
         }
+    }
+
+    @JavascriptInterface
+    public void navStep(int step, int total) {
+        act.syncNav(step, total);
+    }
+
+    @JavascriptInterface
+    public void showNav(boolean on) {
+        act.showNav(on);
     }
 
     @JavascriptInterface
@@ -1441,6 +1543,86 @@ class ExtRunner2 implements Runnable {
             act.uiRefresh();
         } catch (Exception ex) {
             act.uiLog(script + " 失败：" + ex);
+        }
+    }
+}
+
+/** 原生导航：上一步。 */
+class NavPrev implements android.view.View.OnClickListener {
+
+    private final MainActivity act;
+
+    NavPrev(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void onClick(android.view.View v) {
+        try {
+            act.web.evaluateJavascript("window.wzPrev && window.wzPrev()", null);
+        } catch (Throwable ignored) {
+        }
+    }
+}
+
+/** 原生导航：下一步。 */
+class NavNext implements android.view.View.OnClickListener {
+
+    private final MainActivity act;
+
+    NavNext(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void onClick(android.view.View v) {
+        try {
+            act.web.evaluateJavascript("window.wzNext && window.wzNext()", null);
+        } catch (Throwable ignored) {
+        }
+    }
+}
+
+/** 同步导航状态（在主线程）。 */
+class NavSync implements Runnable {
+
+    private final MainActivity act;
+    private final int step;
+    private final int total;
+
+    NavSync(MainActivity a, int s, int t) {
+        this.act = a;
+        this.step = s;
+        this.total = t;
+    }
+
+    @Override
+    public void run() {
+        if (act.navBar == null) {
+            return;
+        }
+        boolean done = step > total;
+        act.navBar.setVisibility(android.view.View.VISIBLE);
+        act.prevBtn.setVisibility(step <= 1 ? android.view.View.GONE : android.view.View.VISIBLE);
+        act.nextBtn.setText(done ? "进入控制台" : (step >= total ? "完成" : "下一步"));
+    }
+}
+
+/** 显示/隐藏导航条（在主线程）。 */
+class NavToggle implements Runnable {
+
+    private final MainActivity act;
+    private final boolean on;
+
+    NavToggle(MainActivity a, boolean on) {
+        this.act = a;
+        this.on = on;
+    }
+
+    @Override
+    public void run() {
+        if (act.navBar != null) {
+            act.navBar.setVisibility(on ? android.view.View.VISIBLE : android.view.View.GONE);
         }
     }
 }
