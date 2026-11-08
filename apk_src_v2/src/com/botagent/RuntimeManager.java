@@ -29,6 +29,52 @@ public class RuntimeManager implements Runnable {
     private final boolean silent;        // true = 日志打到通知栏，不弹页面
 
     /** 实际使用的控制台端口（8080 被占就自动换）。 */
+    /** 运行时包版本戳（assets/runtime.zip 的字节数），变了就重新解压。 */
+    private String runtimeStamp() {
+        try {
+            InputStream in = ctx.getAssets().open("runtime.zip");
+            long n = 0;
+            byte[] b = new byte[1 << 16];
+            int r;
+            while ((r = in.read(b)) > 0) {
+                n += r;
+            }
+            in.close();
+            return "v2-" + n;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private File stampFile() {
+        return new File(ctx.getFilesDir(), "rt.stamp");
+    }
+
+    private String readStamp() {
+        try {
+            File f = stampFile();
+            if (!f.exists()) {
+                return "";
+            }
+            byte[] b = new byte[(int) f.length()];
+            java.io.FileInputStream in = new java.io.FileInputStream(f);
+            in.read(b);
+            in.close();
+            return new String(b, "UTF-8").trim();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void writeStamp(String v) {
+        try {
+            java.io.FileWriter w = new java.io.FileWriter(stampFile());
+            w.write(v);
+            w.close();
+        } catch (Exception ignored) {
+        }
+    }
+
     public static volatile int port = 8080;
 
     public static volatile Process webuiProc;
@@ -85,12 +131,19 @@ public class RuntimeManager implements Runnable {
             log("准备运行时…");
             File rt = new File(ctx.getFilesDir(), "rt");
             File py = new File(rt, "usr/bin/python3");
-            if (!py.exists() || force) {
-                log("首次启动：解压运行时（约 45 MB）");
+            String stamp = runtimeStamp();
+            boolean stale = !stamp.equals(readStamp());
+            if (!py.exists() || force || stale) {
+                if (stale && py.exists()) {
+                    log("运行时版本变了，重新解压");
+                } else {
+                    log("首次启动：解压运行时（约 45 MB）");
+                }
                 extractRuntime(rt);
+                writeStamp(stamp);
                 log("运行时解压完成");
             } else {
-                log("运行时已存在");
+                log("运行时已就绪");
             }
             File aibot = new File(ctx.getFilesDir(), "aibot");
             copyAibot(aibot);

@@ -115,6 +115,44 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** 保存协议端地址（ws://...）和 access_token。 */
+    String saveProto(String ws, String token) {
+        try {
+            File dir = new File(getFilesDir(), "aibot");
+            dir.mkdirs();
+            org.json.JSONObject o = new org.json.JSONObject();
+            File f = configFile();
+            if (f.exists()) {
+                String raw = new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8");
+                try {
+                    o = new org.json.JSONObject(raw);
+                } catch (Exception ignored) {
+                }
+            }
+            ws = ws == null ? "" : ws.trim();
+            token = token == null ? "" : token.trim();
+            if (ws.length() > 0) {
+                if (!ws.startsWith("ws://") && !ws.startsWith("wss://")) {
+                    ws = "ws://" + ws;
+                }
+                o.put("proto_ws", ws);
+            } else {
+                o.remove("proto_ws");
+            }
+            if (token.length() > 0) {
+                o.put("proto_token", token);
+            } else {
+                o.remove("proto_token");
+            }
+            java.io.FileWriter w = new java.io.FileWriter(f);
+            w.write(o.toString(2));
+            w.close();
+            return "协议端已保存";
+        } catch (Exception e) {
+            return "保存失败：" + e.getMessage();
+        }
+    }
+
     String saveConfig(String qq, String apiKey) {
         try {
             File dir = new File(getFilesDir(), "aibot");

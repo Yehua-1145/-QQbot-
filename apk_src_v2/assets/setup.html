@@ -127,8 +127,19 @@
   <div class="card" id="qqcard">
     <h3>③ QQ 协议端</h3>
     <p id="qqdesc">QQ 登录靠它。检测中…</p>
-    <button class="ghost" id="astrbot">去下载 AstrBot（约 95 MB）</button>
-    <div class="warnbox">装完在 AstrBot 里扫码登录 QQ，并把 <b>WebSocket 端口改成 3001</b>。</div>
+
+    <label>协议端地址（OneBot v11 WebSocket）</label>
+    <input id="protows" placeholder="ws://127.0.0.1:3001" autocomplete="off">
+    <label>access_token（没设就留空）</label>
+    <input id="prototok" type="password" placeholder="可选" autocomplete="off">
+    <button class="green" id="protosave">保存协议端</button>
+    <div class="hint" id="protohint">
+      本机装了协议端就用 127.0.0.1:3001；<br>
+      协议端在电脑上就填 LAN 地址，比如 ws://192.168.1.10:3001
+    </div>
+
+    <button class="ghost" id="astrbot">没有协议端？装 AstrBot（约 95 MB）</button>
+    <div class="warnbox">装完在 AstrBot 里扫码登录 QQ，端口设成 <b>3001</b>，回来点上面「保存协议端」。</div>
   </div>
 
   <!-- 运行时 / 启动 -->
@@ -230,6 +241,14 @@ function probeAstrbot(){
   return has;
 }
 
+function fillProto(){
+  try{
+    const v = B && B.protoWs ? B.protoWs() : "";
+    if(v && $("protows") && !$("protows").value) $("protows").value = v;
+    if(v && $("protohint")) $("protohint").textContent = "当前：" + v;
+  }catch(e){}
+}
+
 function probeConfig(){
   let cfg = null;
   try{ cfg = B && B.getConfig ? JSON.parse(B.getConfig()) : null; }catch(e){}
@@ -270,7 +289,7 @@ function probeRuntime(){
 }
 
 async function refreshAll(){
-  probeA11y(); probeAstrbot(); probeConfig(); probeRuntime(); probeBattery();
+  probeA11y(); probeAstrbot(); probeConfig(); probeRuntime(); probeBattery(); fillProto();
   const d = await probeWeb();
   if(d){
     $("sub").textContent = "本地服务运行中" + (d.online ? "，QQ 在线" : "，QQ 未登录");
@@ -324,6 +343,18 @@ window.rtDone = function(m){
 };
 
 const START_CMD = "bash ~/aibot/start.sh";
+
+$("protosave").onclick = () => {
+  try{
+    const ws = $("protows").value || "";
+    const tk = $("prototok").value || "";
+    if(!ws.trim()){ toast("先填地址，比如 ws://127.0.0.1:3001"); return; }
+    const r = B && B.saveProto ? B.saveProto(ws, tk) : "没有桥";
+    toast(r);
+    $("protohint").textContent = "已保存：" + ws;
+    setTimeout(refreshAll, 600);
+  }catch(e){ toast("保存失败"); }
+};
 
 $("batt").onclick = () => {
   try{

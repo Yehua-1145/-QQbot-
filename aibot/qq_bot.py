@@ -41,6 +41,13 @@ try:
 except Exception:
     _BOT_CFG = {}
 
+# 协议端地址与令牌：config.json 里的 proto_ws / proto_token（环境变量优先级最高）
+# 这样协议端可以是 NapCat、AstrBot 自带的那个，或者任何 OneBot v11 实现
+if _BOT_CFG.get("proto_ws") and not os.environ.get("PHONEAGENT_NAPCAT_WS"):
+    NAPCAT_WS = str(_BOT_CFG["proto_ws"]).strip()
+if _BOT_CFG.get("proto_token") and not os.environ.get("PHONEAGENT_NAPCAT_TOKEN"):
+    NAPCAT_TOKEN = str(_BOT_CFG["proto_token"]).strip()
+
 OWNER_UID = int(_BOT_CFG.get("owner_uid")
                 or os.environ.get("PHONEAGENT_OWNER_UID") or 0)
 _cfg_allowed_private_uids = _BOT_CFG.get("allowed_private_uids") or []
