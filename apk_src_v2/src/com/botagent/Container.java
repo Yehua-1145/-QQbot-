@@ -44,6 +44,13 @@ public class Container {
         if (f == null || !f.exists()) {
             return 0;
         }
+        // 符号链接不跟（否则 /proc、/sys 之类会把体积算爆）
+        try {
+            if (java.nio.file.Files.isSymbolicLink(f.toPath())) {
+                return 0;
+            }
+        } catch (Exception ignored) {
+        }
         if (f.isFile()) {
             return f.length();
         }
