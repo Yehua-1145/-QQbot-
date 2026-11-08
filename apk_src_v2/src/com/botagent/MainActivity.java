@@ -574,6 +574,21 @@ class Bridge {
 
     @JavascriptInterface
     public boolean a11yEnabled() {
+        // 先看无障碍服务端口通不通（最准）；不行再退回读设置
+        java.net.Socket sk = null;
+        try {
+            sk = new java.net.Socket();
+            sk.connect(new java.net.InetSocketAddress("127.0.0.1", 8081), 350);
+            return true;
+        } catch (Exception ignored) {
+        } finally {
+            try {
+                if (sk != null) {
+                    sk.close();
+                }
+            } catch (Exception ignored) {
+            }
+        }
         try {
             String cur = android.provider.Settings.Secure.getString(
                     act.getContentResolver(),

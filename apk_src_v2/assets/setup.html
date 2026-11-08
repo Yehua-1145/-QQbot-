@@ -143,14 +143,14 @@ button.green{background:linear-gradient(135deg,#3ddc97,#12a67d);color:#042420}
   <!-- 3 环境 -->
   <div class="card hide" id="s3">
     <h2>准备运行环境</h2>
-    <p class="lead">三步都做完就能启动。容器提供 Linux 环境，NapCat 提供 QQ 协议，QQ 安装包要你自己提供。</p>
+    <p class="lead">容器给 Linux 环境，NapCat 给 QQ 协议，QQ 安装包由你提供。三样齐了就能启动。</p>
 
-    <div class="hint" id="ctninfo">容器：检查中…</div>
+    <div class="hint" id="ctninfo" style="margin-top:2px">容器：检查中…</div>
     <button class="ghost" id="ctncreate">① 创建容器（下载 26 MB）</button>
 
-    <div class="hint" id="extinfo" style="margin-top:14px">QQ 包：检查中…</div>
+    <div class="hint" id="extinfo" style="margin-top:22px">QQ 包：检查中…</div>
     <button class="ghost" id="napinstall">② 安装 NapCat（内置）</button>
-    <button class="ghost" id="extpick">③ 导入 QQ 安装包（.deb）</button>
+    <button class="ghost" id="extpick" style="margin-top:10px">③ 导入 QQ 安装包（.deb）</button>
     <button class="ghost" id="extinstall">装进容器</button>
 
     <button class="ghost" id="ctnshow" style="margin-top:14px">高级：在容器里跑命令</button>
@@ -305,7 +305,14 @@ async function refreshAll(){
   const d = await probeWeb();
   $("sub").textContent = d ? (d.online ? "运行中，QQ 已登录" : "运行中，等待扫码") : "本地服务未启动";
 
-  try{ if ($("ctninfo")) $("ctninfo").textContent = "容器：" + (B.containerInfo ? B.containerInfo() : "未知"); }catch(e){}
+  let ctnOn = false;
+  try{ ctnOn = B && B.containerReady ? B.containerReady() : false; }catch(e){}
+  try{
+    if ($("ctninfo")) $("ctninfo").textContent = "容器：" + (B.containerInfo ? B.containerInfo() : "未知");
+    if ($("ctncreate")) $("ctncreate").textContent = ctnOn
+      ? "✓ 容器已就绪（点此重建）"
+      : "① 创建容器（下载 26 MB）";
+  }catch(e){}
   try{ if ($("extinfo") && B.extInfo) $("extinfo").textContent = "QQ 包：" + B.extInfo(); }catch(e){}
 
   let hasRt = false;
