@@ -66,8 +66,8 @@ public class MainActivity extends Activity {
     // ---------- 页面切换 ----------
     void openConsole() {
         onConsole = true;
-        int p = RuntimeManager.port > 0 ? RuntimeManager.port : 8080;
-        web.loadUrl("http://127.0.0.1:" + p + "/app");
+        // 用自己的控制台界面（不再把 webui 的网页塞进 WebView）
+        web.loadUrl("file:///android_asset/console.html");
     }
 
     void backToSetup() {
