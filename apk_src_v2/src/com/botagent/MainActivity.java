@@ -590,6 +590,16 @@ class Bridge {
     }
 
     @JavascriptInterface
+    public void napcatInstall() {
+        new Thread(new NapCatInstaller(act)).start();
+    }
+
+    @JavascriptInterface
+    public void napcatStart() {
+        new Thread(new ExtRunner2(act, "napcat-start")).start();
+    }
+
+    @JavascriptInterface
     public void extInstall() {
         new Thread(new ExtInstaller(act)).start();
     }
@@ -1194,6 +1204,243 @@ class ExtRunner implements Runnable {
             act.uiRefresh();
         } catch (Exception ex) {
             act.uiLog("扩展：" + what + " 失败 " + ex);
+        }
+    }
+}
+
+/** 下载 NapCat 官方包（校验 sha256）装进容器。 */
+class NapCatInstaller implements Runnable {
+
+    private static String trimErr(String msg) {
+        if (msg == null) {
+            return "";
+        }
+        String one = msg.replace('\n', ' ');
+        return one.length() > 90 ? one.substring(0, 90) : one;
+    }
+
+    private final MainActivity act;
+
+    NapCatInstaller(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void run() {
+        try {
+            Container c = act.container();
+            if (!c.ready()) {
+                act.uiLog("NapCat：先建容器（⑥）");
+                return;
+            }
+            Extension e = act.qqExt();
+            e.dir().mkdirs();
+            e.writeScripts();
+
+            java.io.File zip = new java.io.File(act.getCacheDir(), "napcat.zip");
+            // ① 先用 App 里自带的官方包（离线可用，最快）
+            if (!zip.exists() || zip.length() < 30 * 1024 * 1024
+                    || !Extension.NAPCAT_SHA256.equalsIgnoreCase(sha256(zip))) {
+                try {
+                    act.uiLog("NapCat：使用 App 内置的官方包 " + Extension.NAPCAT_VER);
+                    java.io.InputStream in = act.getAssets().open("napcat/NapCat.Shell.zip");
+                    java.io.FileOutputStream out = new java.io.FileOutputStream(zip);
+                    byte[] b = new byte[1 << 16];
+                    int n;
+                    long got = 0;
+                    while ((n = in.read(b)) > 0) {
+                        out.write(b, 0, n);
+                        got += n;
+                    }
+                    in.close();
+                    out.close();
+                    act.uiLog("NapCat：内置包已解出 " + (got / 1048576) + " MB");
+                } catch (Exception ex0) {
+                    act.uiLog("NapCat：内置包不可用（" + ex0 + "）");
+                }
+            }
+            boolean need = true;
+            if (zip.exists() && zip.length() > 30 * 1024 * 1024) {
+                String h = sha256(zip);
+                if (Extension.NAPCAT_SHA256.equalsIgnoreCase(h)) {
+                    need = false;
+                    act.uiLog("NapCat：本地已有校验通过的包");
+                }
+            }
+            if (need) {
+                act.uiLog("NapCat：下载官方包 " + Extension.NAPCAT_VER + "（约 34 MB）");
+                // 直连优先，失败再走加速镜像。无论哪条路，最后都按官方 sha256 校验。
+                String[] tries = {
+                        Extension.NAPCAT_URL,
+                        "https://ghfast.top/" + Extension.NAPCAT_URL,
+                        "https://gh-proxy.com/" + Extension.NAPCAT_URL,
+                        "https://ghproxy.net/" + Extension.NAPCAT_URL,
+                };
+                boolean got = false;
+                for (int i = 0; i < tries.length && !got; i++) {
+                    String label = i == 0 ? "官方直连" : "镜像 " + i;
+                    act.uiLog("NapCat：尝试" + label);
+                    String err = download(tries[i], zip, act);
+                    if (err != null) {
+                        act.uiLog("NapCat：" + label + " 失败（" + trimErr(err) + "）");
+                        zip.delete();
+                        continue;
+                    }
+                    String h = sha256(zip);
+                    if (!Extension.NAPCAT_SHA256.equalsIgnoreCase(h)) {
+                        act.uiLog("NapCat：" + label + " 校验不通过，已丢弃");
+                        zip.delete();
+                        continue;
+                    }
+                    act.uiLog("NapCat：" + label + " 下载并校验通过");
+                    got = true;
+                }
+                if (!got) {
+                    act.uiLog("NapCat：所有下载方式都失败了。"
+                            + "可以在电脑上下好 NapCat.Shell.zip，用「导入 NapCat 包」放进来。");
+                    return;
+                }
+            }
+            // 直接在 App 这边解压到容器目录（不依赖容器里的 unzip）
+            java.io.File dest = new java.io.File(c.dir(), "opt/napcat");
+            dest.mkdirs();
+            int files = unzipTo(zip, dest);
+            act.uiLog("NapCat：已解出 " + files + " 个文件到容器");
+
+            c.push(new java.io.File(e.dir(), "napcat-install.sh"), "napcat-install.sh", null);
+            act.uiLog("NapCat：开始装运行环境");
+            String out = c.run(new String[]{"/bin/sh", "/tmp/napcat-install.sh"}, 900, act);
+            boolean ok = out != null && out.contains("NAPCAT_OK");
+            act.uiLog(ok ? "NapCat：安装完成" : "NapCat：安装没成功，看上面日志");
+            act.uiRefresh();
+        } catch (Throwable t) {
+            act.uiLog("NapCat：出错 " + t);
+        }
+    }
+
+    /** 把 zip 解到指定目录（Java 自带解压，容器里不需要 unzip）。 */
+    private static int unzipTo(java.io.File zip, java.io.File dest) throws Exception {
+        int n = 0;
+        java.util.zip.ZipInputStream zis =
+                new java.util.zip.ZipInputStream(
+                        new java.io.BufferedInputStream(new java.io.FileInputStream(zip), 1 << 16));
+        byte[] buf = new byte[1 << 16];
+        String rootPath = dest.getCanonicalPath();
+        java.util.zip.ZipEntry en;
+        while ((en = zis.getNextEntry()) != null) {
+            String name = en.getName();
+            if (name == null || name.length() == 0 || name.endsWith("/")) {
+                continue;
+            }
+            java.io.File f = new java.io.File(dest, name);
+            if (!f.getCanonicalPath().startsWith(rootPath)) {
+                continue;
+            }
+            java.io.File parent = f.getParentFile();
+            if (parent != null) {
+                parent.mkdirs();
+            }
+            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+            int r;
+            while ((r = zis.read(buf)) > 0) {
+                out.write(buf, 0, r);
+            }
+            out.close();
+            f.setExecutable(true, false);
+            n++;
+        }
+        zis.close();
+        return n;
+    }
+
+    private static String sha256(java.io.File f) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            java.io.FileInputStream in = new java.io.FileInputStream(f);
+            byte[] b = new byte[1 << 16];
+            int n;
+            while ((n = in.read(b)) > 0) {
+                md.update(b, 0, n);
+            }
+            in.close();
+            StringBuilder sb = new StringBuilder();
+            for (byte x : md.digest()) {
+                sb.append(String.format("%02x", x));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String download(String url, java.io.File dst, MainActivity ui) {
+        java.net.HttpURLConnection conn = null;
+        try {
+            conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            conn.setConnectTimeout(20000);
+            conn.setReadTimeout(60000);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("User-Agent", "Botagent");
+            int code = conn.getResponseCode();
+            if (code != 200) {
+                return "下载失败 HTTP " + code;
+            }
+            long total = conn.getContentLengthLong();
+            java.io.InputStream in = conn.getInputStream();
+            java.io.FileOutputStream out = new java.io.FileOutputStream(dst);
+            byte[] b = new byte[1 << 16];
+            int n;
+            long got = 0;
+            long last = 0;
+            while ((n = in.read(b)) > 0) {
+                out.write(b, 0, n);
+                got += n;
+                long now = System.currentTimeMillis();
+                if (ui != null && now - last > 2000) {
+                    last = now;
+                    ui.uiLog("NapCat 下载 " + (got / 1048576) + " / " + (total / 1048576) + " MB");
+                }
+            }
+            in.close();
+            out.close();
+            return null;
+        } catch (Exception e) {
+            return "下载失败：" + e;
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+}
+
+/** 跑扩展目录里的任意脚本（NapCat 用）。 */
+class ExtRunner2 implements Runnable {
+
+    private final MainActivity act;
+    private final String script;
+
+    ExtRunner2(MainActivity a, String script) {
+        this.act = a;
+        this.script = script;
+    }
+
+    @Override
+    public void run() {
+        try {
+            Extension e = act.qqExt();
+            e.writeScripts();
+            Container c = act.container();
+            if (!c.ready()) {
+                act.uiLog("先建容器");
+                return;
+            }
+            c.push(new java.io.File(e.dir(), script + ".sh"), "run-" + script + ".sh", null);
+            act.uiLog("执行 " + script);
+            c.run(new String[]{"/bin/sh", "/tmp/run-" + script + ".sh"}, 600, act);
+            act.uiRefresh();
+        } catch (Exception ex) {
+            act.uiLog(script + " 失败：" + ex);
         }
     }
 }

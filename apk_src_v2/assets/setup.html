@@ -190,7 +190,15 @@
     <p>需要装到容器里的东西，由你自己提供安装包；我们负责装好、起起来、把状态显示出来。</p>
     <div class="hint" id="extinfo">状态：检查中…</div>
 
-    <label>QQ 协议端（arm64 的 .deb）</label>
+    <label>第 1 步：NapCat（开源，我们提供）</label>
+    <button class="ghost" id="napinstall">安装 NapCat（下载约 34 MB）</button>
+    <button class="ghost" id="napstart">启动 NapCat</button>
+    <div class="hint">
+      NapCat 是开源项目（NapNeko/NapCatQQ），我们从它的官方 Releases 原样下载、校验 sha256 后装进容器。<br>
+      许可证全文随 App 附带，完全非商业使用。
+    </div>
+
+    <label>第 2 步：QQ 协议端（arm64 的 .deb，你自己提供）</label>
     <button class="ghost" id="extpick">导入安装包</button>
     <button class="ghost" id="extinstall">安装到容器</button>
     <button class="ghost" id="extstart">启动</button>
@@ -395,6 +403,17 @@ window.rtDone = function(m){
 };
 
 const START_CMD = "bash ~/aibot/start.sh";
+
+$("napinstall").onclick = () => {
+  const el = $("rtlog"); if(el){ el.style.display = "block"; }
+  toast("开始下载并安装 NapCat…");
+  try{ B.napcatInstall(); }catch(e){ toast("调用失败"); }
+};
+$("napstart").onclick = () => {
+  const el = $("rtlog"); if(el){ el.style.display = "block"; }
+  toast("启动 NapCat…");
+  try{ B.napcatStart(); }catch(e){ toast("启动失败"); }
+};
 
 $("extpick").onclick = () => { try{ B.extPick(); }catch(e){ toast("打不开"); } };
 $("extinstall").onclick = () => {

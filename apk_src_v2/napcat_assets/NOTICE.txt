@@ -1,0 +1,22 @@
+NapCat 使用说明与来源声明
+================================
+
+本 App 会在你点「安装 NapCat」时，从 NapCat 官方 GitHub Releases 下载
+未经修改的原始发布包 NapCat.Shell.zip，并解压到本地容器里运行。
+
+  Source : https://github.com/NapNeko/NapCatQQ
+  Release: https://github.com/NapNeko/NapCatQQ/releases
+  Copyright (c) 2024 Mlikiowa
+  License: Limited Redistribution License for NapCat
+           （全文见同目录 NapCat-LICENSE.txt）
+
+按该许可证要求：
+  1. 我们不修改 NapCat 的代码，只使用官方原始发布包；
+  2. 我们随包提供完整的许可证全文与本来源声明；
+  3. 本 App 及其配套项目完全免费、非商业用途。
+
+本 App 不包含、不下载、不分发 QQ 客户端。
+NapCat 运行时需要 QQ，请自行从官方渠道取得并导入你自己的那份安装包。
+
+QQ 是腾讯公司的商标与产品，本项目与腾讯公司无任何关联，
+不提供任何形式的代登录、协议实现或账号服务。
