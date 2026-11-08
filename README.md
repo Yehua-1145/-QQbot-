@@ -32,14 +32,14 @@ SHA256  6B14CF1554B9AB77D875C18B292BA5E6BB7E3E02F7B821F1667DF555EA8DE411
 
 ## 两条路，选一条
 
-| | **稳定版 v1.1**（main） | **实验版 v2**（分支 `v2-embedded-runtime`） |
+| | **稳定版 v1.1**（main） | **实验版（手机直装） v2**（分支 `v2-embedded-runtime`） |
 |---|---|---|
 | 装法 | 电脑一键部署 / 手机直装（Termux） | **只装一个 APK** |
 | 需要 Termux | 要 | **不要**（Python 运行时打进 APK 里） |
 | 安装步骤 | 四步 | 填 QQ 号 + API Key → 点启动 |
 | 体积 | 18 MB | 34 MB |
 | 状态 | ✅ 稳定，已验证 | 🧪 真机能跑，还在打磨 |
-| 适合 | 想稳定用的 | 想尝鲜、不想碰 Termux 的 |
+| 适合 | 想稳定用的 | 想尝鲜、手机独立部署 |
 
 > v2 的代码在分支 **[`v2-embedded-runtime`](https://github.com/Yehua-1145/-QQbot-/tree/v2-embedded-runtime)**，
 > 单 APK 自带 Python 3.14 运行时，手机上一键启动，不需要 Termux、不需要电脑。
