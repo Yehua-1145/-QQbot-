@@ -318,6 +318,24 @@ public class MainActivity extends Activity {
         return new Container(this);
     }
 
+    static final int REQ_EXT = 4352;
+
+    Extension qqExt() {
+        return new Extension(this, Extension.QQ_ID, "QQ 协议端", "用户自备安装包");
+    }
+
+    void extImport() {
+        try {
+            android.content.Intent i = new android.content.Intent(
+                    android.content.Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            i.setType("*/*");
+            startActivityForResult(i, REQ_EXT);
+        } catch (Exception e) {
+            uiLog("打不开文件选择器：" + e);
+        }
+    }
+
     static final int REQ_DEB = 4351;
 
     void pickDeb() {
@@ -335,7 +353,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int res, android.content.Intent data) {
         super.onActivityResult(req, res, data);
-        if (req != REQ_DEB || res != RESULT_OK || data == null || data.getData() == null) {
+        if (res != RESULT_OK || data == null || data.getData() == null) {
+            return;
+        }
+        if (req == REQ_EXT) {
+            final android.net.Uri u2 = data.getData();
+            new Thread(new ExtImporter(this, u2)).start();
+            return;
+        }
+        if (req != REQ_DEB) {
             return;
         }
         final android.net.Uri uri = data.getData();
@@ -533,6 +559,54 @@ class Bridge {
     @JavascriptInterface
     public void containerCreate() {
         act.createContainer();
+    }
+
+    @JavascriptInterface
+    public void extPick() {
+        act.runOnUiThread(new ExtPicker(act));
+    }
+
+    @JavascriptInterface
+    public boolean extHasPayload() {
+        Extension e = act.qqExt();
+        return e.payload() != null;
+    }
+
+    @JavascriptInterface
+    public String extInfo() {
+        Extension e = act.qqExt();
+        java.io.File p = e.payload();
+        StringBuilder sb = new StringBuilder();
+        if (p == null) {
+            sb.append("没放安装包");
+        } else {
+            sb.append("已放 ").append(p.getName())
+              .append("（").append(p.length() / 1048576).append(" MB）");
+        }
+        if (e.installed()) {
+            sb.append(" · 已安装");
+        }
+        return sb.toString();
+    }
+
+    @JavascriptInterface
+    public void extInstall() {
+        new Thread(new ExtInstaller(act)).start();
+    }
+
+    @JavascriptInterface
+    public void extStart() {
+        new Thread(new ExtRunner(act, "start")).start();
+    }
+
+    @JavascriptInterface
+    public void extStop() {
+        new Thread(new ExtRunner(act, "stop")).start();
+    }
+
+    @JavascriptInterface
+    public void extStatus() {
+        new Thread(new ExtRunner(act, "status")).start();
     }
 
     @JavascriptInterface
@@ -982,6 +1056,144 @@ class DebImporter implements Runnable {
             act.uiRefresh();
         } catch (Exception e) {
             act.uiLog("容器：导入失败 " + e);
+        }
+    }
+}
+
+/** 主线程打开文件选择器（扩展包）。 */
+class ExtPicker implements Runnable {
+
+    private final MainActivity act;
+
+    ExtPicker(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void run() {
+        act.extImport();
+    }
+}
+
+/** 导入扩展包：把用户选的文件放进扩展目录。 */
+class ExtImporter implements Runnable {
+
+    private final MainActivity act;
+    private final android.net.Uri uri;
+
+    ExtImporter(MainActivity a, android.net.Uri u) {
+        this.act = a;
+        this.uri = u;
+    }
+
+    @Override
+    public void run() {
+        try {
+            Extension e = act.qqExt();
+            e.dir().mkdirs();
+            e.writeScripts();
+            String name = "payload.deb";
+            try {
+                String seg = uri.getLastPathSegment();
+                if (seg != null) {
+                    String tail = seg.substring(seg.lastIndexOf('/') + 1);
+                    if (tail.length() > 0) {
+                        name = tail;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            act.uiLog("扩展：导入 " + name);
+            java.io.InputStream in = act.getContentResolver().openInputStream(uri);
+            if (in == null) {
+                act.uiLog("扩展：读不到文件");
+                return;
+            }
+            java.io.File dst = new java.io.File(e.dir(), name);
+            java.io.FileOutputStream out = new java.io.FileOutputStream(dst);
+            byte[] b = new byte[1 << 16];
+            int n;
+            long got = 0;
+            while ((n = in.read(b)) > 0) {
+                out.write(b, 0, n);
+                got += n;
+            }
+            in.close();
+            out.close();
+            act.uiLog("扩展：已放进扩展目录（" + (got / 1048576) + " MB）");
+            act.uiRefresh();
+        } catch (Exception ex) {
+            act.uiLog("扩展：导入失败 " + ex);
+        }
+    }
+}
+
+/** 在容器里装扩展。 */
+class ExtInstaller implements Runnable {
+
+    private final MainActivity act;
+
+    ExtInstaller(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void run() {
+        Extension e = act.qqExt();
+        e.writeScripts();
+        java.io.File p = e.payload();
+        if (p == null) {
+            act.uiLog("扩展：还没放安装包（点「导入安装包」）");
+            return;
+        }
+        Container c = act.container();
+        if (!c.ready()) {
+            act.uiLog("扩展：先建容器");
+            return;
+        }
+        act.uiLog("扩展：放入安装包…");
+        c.push(p, "payload.deb", act);
+        act.uiLog("扩展：开始安装（第一次会比较久）");
+        c.run(new String[]{"/bin/sh", "-c",
+                "mkdir -p /tmp/ext && cp -f "
+                        + "/tmp/payload.deb /tmp/ext/payload.deb 2>/dev/null || true"}, 120, null);
+        c.push(e.dir() != null ? new java.io.File(e.dir(), "install.sh") : null,
+                "ext-install.sh", null);
+        String out = c.run(new String[]{"/bin/sh", "/tmp/ext-install.sh"}, 1800, act);
+        boolean ok = out != null && out.contains("QQ_DIR_OK");
+        e.markInstalled(ok);
+        act.uiLog(ok ? "扩展：安装完成" : "扩展：安装可能没成功，看上面日志");
+        act.uiRefresh();
+    }
+}
+
+/** 启动/停止/状态。 */
+class ExtRunner implements Runnable {
+
+    private final MainActivity act;
+    private final String what;
+
+    ExtRunner(MainActivity a, String what) {
+        this.act = a;
+        this.what = what;
+    }
+
+    @Override
+    public void run() {
+        Extension e = act.qqExt();
+        Container c = act.container();
+        if (!c.ready()) {
+            act.uiLog("扩展：先建容器");
+            return;
+        }
+        try {
+            java.io.File script = new java.io.File(e.dir(), what + ".sh");
+            c.push(script, "ext-" + what + ".sh", null);
+            act.uiLog("扩展：" + what);
+            c.run(new String[]{"/bin/sh", "/tmp/ext-" + what + ".sh"}, 300, act);
+            act.uiRefresh();
+        } catch (Exception ex) {
+            act.uiLog("扩展：" + what + " 失败 " + ex);
         }
     }
 }

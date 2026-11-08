@@ -184,6 +184,26 @@
     </div>
   </div>
 
+  <!-- 扩展包（用户自备） -->
+  <div class="card">
+    <h3>⑦ 扩展包（自备安装包）</h3>
+    <p>需要装到容器里的东西，由你自己提供安装包；我们负责装好、起起来、把状态显示出来。</p>
+    <div class="hint" id="extinfo">状态：检查中…</div>
+
+    <label>QQ 协议端（arm64 的 .deb）</label>
+    <button class="ghost" id="extpick">导入安装包</button>
+    <button class="ghost" id="extinstall">安装到容器</button>
+    <button class="ghost" id="extstart">启动</button>
+    <button class="ghost" id="extstop">停止</button>
+    <button class="ghost" id="extstatus">看状态</button>
+
+    <div class="warnbox">
+      这里<b>不包含也不下载</b>任何 QQ 客户端。<br>
+      请自己从官方渠道拿到 arm64 版安装包，用上面的「导入安装包」放进来。<br>
+      装不装、装什么版本，都由你决定；我们只做适配和运行。
+    </div>
+  </div>
+
   <div class="card">
     <h3>装好之后能干什么</h3>
     <ul class="steps">
@@ -257,6 +277,13 @@ function probeAstrbot(){
   return has;
 }
 
+function probeExt(){
+  try{
+    const el = $("extinfo");
+    if(el) el.textContent = "状态：" + (B && B.extInfo ? B.extInfo() : "未知");
+  }catch(e){}
+}
+
 function probeContainer(){
   try{
     const on = B && B.containerReady ? B.containerReady() : false;
@@ -314,7 +341,7 @@ function probeRuntime(){
 }
 
 async function refreshAll(){
-  probeA11y(); probeAstrbot(); probeConfig(); probeRuntime(); probeBattery(); fillProto(); probeContainer();
+  probeA11y(); probeAstrbot(); probeConfig(); probeRuntime(); probeBattery(); fillProto(); probeContainer(); probeExt();
   const d = await probeWeb();
   if(d){
     $("sub").textContent = "本地服务运行中" + (d.online ? "，QQ 在线" : "，QQ 未登录");
@@ -368,6 +395,20 @@ window.rtDone = function(m){
 };
 
 const START_CMD = "bash ~/aibot/start.sh";
+
+$("extpick").onclick = () => { try{ B.extPick(); }catch(e){ toast("打不开"); } };
+$("extinstall").onclick = () => {
+  const el = $("rtlog"); if(el){ el.style.display = "block"; }
+  toast("开始安装扩展…");
+  try{ B.extInstall(); }catch(e){ toast("安装调用失败"); }
+};
+$("extstart").onclick = () => {
+  const el = $("rtlog"); if(el){ el.style.display = "block"; }
+  toast("启动中…");
+  try{ B.extStart(); }catch(e){ toast("启动失败"); }
+};
+$("extstop").onclick = () => { try{ B.extStop(); toast("已发停止"); }catch(e){} };
+$("extstatus").onclick = () => { try{ B.extStatus(); }catch(e){} };
 
 $("ctncreate").onclick = () => {
   try{

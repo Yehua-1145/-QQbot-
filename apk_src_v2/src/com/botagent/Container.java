@@ -243,6 +243,44 @@ public class Container {
         return out;
     }
 
+    /** 跑容器里的一个脚本（参数为容器内路径，比如 /tmp/ext/install.sh）。 */
+    public String runScript(String guestScript, int timeoutSec, MainActivity ui) {
+        return run(new String[]{"/bin/sh", guestScript}, timeoutSec, ui);
+    }
+
+    /** 把 App 私有目录里的文件拷进容器的 /tmp。 */
+    public void push(File src, String guestName, MainActivity ui) {
+        try {
+            File tmp = new File(dir(), "tmp");
+            tmp.mkdirs();
+            java.io.File dst = new File(tmp, guestName);
+            java.nio.file.Files.copy(src.toPath(), dst.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            if (ui != null) {
+                ui.uiLog("已放入容器: /tmp/" + guestName);
+            }
+        } catch (Exception e) {
+            if (ui != null) {
+                ui.uiLog("放入容器失败：" + e);
+            }
+        }
+    }
+
+    /** 容器里拷出一个文件（比如二维码截图）。 */
+    public boolean pull(String guestPath, File dst, MainActivity ui) {
+        try {
+            java.io.File src = new java.io.File(dir(), guestPath.replaceFirst("^/", ""));
+            if (!src.exists()) {
+                return false;
+            }
+            java.nio.file.Files.copy(src.toPath(), dst.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** 在容器里跑一条命令，返回输出。 */
     public String run(String[] argv, int timeoutSec, MainActivity ui) {
         try {
