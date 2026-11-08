@@ -387,7 +387,7 @@ public class RuntimeManager implements Runnable {
     private void startService(File rt, File aibot, String script, int which) throws Exception {
         String lib = ctx.getApplicationInfo().nativeLibraryDir;
         java.util.List<String> cmd = new java.util.ArrayList<>();
-        cmd.add(lib + "/libpybin.so");
+        cmd.add(rt.getAbsolutePath() + "/usr/bin/python3");
         cmd.add(aibot.getAbsolutePath() + "/" + script);
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);

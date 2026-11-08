@@ -12,7 +12,7 @@
 ### 1. 下载 APK
 
 到 [Releases](https://github.com/Yehua-1145/-QQbot-/releases) 找 **v2.0.0-beta**，下载
-`Botagent-v2.0-beta.apk`（约 34 MB）。
+`Botagent-v2.0-beta.apk`（约 18 MB）。
 
 > 小米/红米要先开：**设置 → 更多设置 → 开发者选项 → USB 安装**，
 > 否则可能提示「安装被拒绝」。装不上的话从手机浏览器直接点开 APK 也行。
@@ -66,7 +66,7 @@ APK 负责"大脑"（AI、工具、控制台）。**QQ 登录需要协议端**�
 ## 它里面装了什么
 
 ```
-Botagent.apk (34 MB)
+Botagent.apk (18 MB)
 ├── Python 3.14.10          ← 从 Termux 官方仓库打的包，跑在 App 私有目录
 ├── libssl / libcrypto      ← HTTPS 能用，pip 也能用
 ├── libsqlite3 / zlib / ...
@@ -119,7 +119,7 @@ Botagent.apk (34 MB)
 | 需要 Termux | 要 | **不要** |
 | 需要电脑 | 首次要 | **不要** |
 | 安装步骤 | 4 步（含开 USB 调试） | 填两个空 + 点启动 |
-| APK 体积 | 137 KB（纯控制台） | 34 MB（含运行时） |
+| APK 体积 | 137 KB（纯控制台） | 18 MB（含运行时） |
 | 稳定性 | 验证过 | 实验性 |
 | QQ 协议端 | 同样要 AstrBot | 同样要 AstrBot |
 

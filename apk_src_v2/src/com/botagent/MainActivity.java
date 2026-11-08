@@ -222,10 +222,13 @@ public class MainActivity extends Activity {
     }
 
     boolean runtimeReady() {
-        // 内置运行时：proot 在 nativeLibraryDir 里就说明这个包带了运行时
-        String dir = getApplicationInfo().nativeLibraryDir;
-        return new File(dir, "libproot.so").exists()
-                && new File(dir, "libpybin.so").exists();
+        // 有 assets/runtime.zip 就算带运行时（不再依赖 lib/ 里的二进制）
+        try {
+            getAssets().open("runtime.zip").close();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @Override

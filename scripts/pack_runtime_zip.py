@@ -1,4 +1,12 @@
-"""把 runtime 的 files/ 打成 zip（保留 unix 权限位），给 Android 的 ZipInputStream 用。"""
+"""把 runtime 的 files/ 树打成 runtime.zip（保留符号链接与权限位）。
+
+App 侧的 RuntimeManager 会用 ZipInputStream 解压，然后靠
+restoreSymlinks() 把符号链接重建出来（因为 Android 读不到 zip 里的 S_IFLNK）。
+
+用法：
+    python pack_runtime_zip.py --files build/runtime_build/files --out build/runtime.zip
+"""
+import argparse
 import os
 import stat
 import sys
@@ -6,54 +14,60 @@ import zipfile
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-FILES = r"D:\runtime_build\files"
-OUT = r"D:\runtime_build\runtime.zip"
 
-count = 0
-total = 0
-with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-    for root, dirs, files in os.walk(FILES):
-        for name in files:
-            p = os.path.join(root, name)
-            arc = os.path.relpath(p, FILES).replace("\\", "/")
-            try:
-                st = os.lstat(p)
-            except OSError:
-                continue
-            if stat.S_ISLNK(st.st_mode):
-                # 符号链接：目标写进内容，标记 S_IFLNK
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--files", default="build/runtime_build/files",
+                    help="runtime 的 files 目录（里面是 usr/…）")
+    ap.add_argument("--out", default="build/runtime.zip")
+    ap.add_argument("--level", type=int, default=6, help="压缩级别 1~9")
+    a = ap.parse_args()
+
+    files = os.path.abspath(a.files)
+    out = os.path.abspath(a.out)
+    if not os.path.isdir(files):
+        print("没有这个目录:", files)
+        sys.exit(1)
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+
+    count = links = total = 0
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=a.level) as z:
+        for root, dirs, names in os.walk(files):
+            for name in names:
+                p = os.path.join(root, name)
+                arc = os.path.relpath(p, files).replace("\\", "/")
                 try:
-                    target = os.readlink(p)
+                    st = os.lstat(p)
                 except OSError:
+                    continue
+                if stat.S_ISLNK(st.st_mode):
+                    zi = zipfile.ZipInfo(arc)
+                    zi.create_system = 3
+                    zi.external_attr = (stat.S_IFLNK | 0o777) << 16
+                    z.writestr(zi, os.readlink(p))
+                    links += 1
+                    count += 1
                     continue
                 zi = zipfile.ZipInfo(arc)
                 zi.create_system = 3
-                zi.external_attr = (stat.S_IFLNK | 0o777) << 16
-                z.writestr(zi, target)
+                zi.external_attr = (stat.S_IFREG | (st.st_mode & 0o777)) << 16
+                zi.compress_type = zipfile.ZIP_DEFLATED
+                data = open(p, "rb").read()
+                z.writestr(zi, data)
                 count += 1
-                continue
-            mode = st.st_mode & 0o777
-            zi = zipfile.ZipInfo(arc)
-            zi.create_system = 3
-            zi.external_attr = (stat.S_IFREG | mode) << 16
-            zi.compress_type = zipfile.ZIP_DEFLATED
-            with open(p, "rb") as f:
-                data = f.read()
-            z.writestr(zi, data)
-            count += 1
-            total += len(data)
-            if count % 500 == 0:
-                print("  ...%d 个文件" % count, flush=True)
+                total += len(data)
 
-print("打包完成：%d 个文件，原始 %.1f MB -> zip %.1f MB"
-      % (count, total / 1048576, os.path.getsize(OUT) / 1048576))
+    size = os.path.getsize(out)
+    print("打包完成：%d 个条目（其中软链 %d），原始 %.1f MB -> zip %.1f MB"
+          % (count, links, total / 1048576, size / 1048576))
 
-# 抽查几个关键文件
-with zipfile.ZipFile(OUT) as z:
-    for probe in ("usr/bin/python3", "usr/bin/proot", "usr/lib/libssl.so.3"):
-        try:
-            zi = z.getinfo(probe)
-            mode = (zi.external_attr >> 16) & 0o777
-            print("  %-24s %6d 字节  权限 %o" % (probe, zi.file_size, mode))
-        except KeyError:
-            print("  %-24s 没有" % probe)
+    # 抽查关键文件
+    with zipfile.ZipFile(out) as z:
+        for probe in ("usr/bin/python3", "usr/lib/libssl.so.3",
+                      "usr/lib/python3.14/os.py", "usr/etc/tls/cert.pem"):
+            hit = probe in z.namelist()
+            print("  %-32s %s" % (probe, "有" if hit else "缺"))
+
+
+if __name__ == "__main__":
+    main()
