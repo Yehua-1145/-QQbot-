@@ -6,9 +6,9 @@
 <title>Botagent</title>
 <style>
   :root{
-    --bg:#08181b; --bg2:#0b2124; --card:#0f262a; --line:#1b3c42;
-    --txt:#e8fbf9; --dim:#7fa8ad; --cyan:#22d3c5; --cyan2:#14b8a6;
-    --green:#34d399; --amber:#fbbf24; --red:#f87171;
+    --bg:#08181b; --bg2:#0b2124; --card:#102326; --line:rgba(255,255,255,.07);
+    --txt:#e9f6f5; --dim:#7c9a9e; --cyan:#2ad4c6; --cyan2:#14a89b;
+    --green:#3ddc97; --amber:#f5c451; --red:#f4776d;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
@@ -34,13 +34,15 @@
     border-radius:10px;padding:7px 11px;font-size:12.5px}
 
   #list{flex:1;overflow-y:auto;padding:14px 14px 6px;-webkit-overflow-scrolling:touch}
-  .msg{max-width:86%;padding:11px 13px;border-radius:14px;margin-bottom:10px;
-    font-size:14.5px;white-space:pre-wrap;word-break:break-word;animation:pop .18s ease}
-  .me{margin-left:auto;background:linear-gradient(135deg,#14b8a6,#0e9f8f);color:#04211f;
-    border-bottom-right-radius:5px}
-  .ai{background:var(--card);border:1px solid var(--line);border-bottom-left-radius:5px}
-  .tool{font-size:11.5px;color:var(--cyan);background:#0c2b2f;border:1px dashed #1f5359;
-    border-radius:9px;padding:6px 9px;margin-bottom:8px;max-width:86%;animation:pop .18s ease}
+  .msg{max-width:86%;padding:13px 15px;border-radius:16px;margin-bottom:12px;
+    font-size:14.5px;line-height:1.7;white-space:pre-wrap;word-break:break-word;
+    animation:pop .18s ease}
+  .me{margin-left:auto;background:linear-gradient(135deg,#2ad4c6,#14a89b);color:#04211f;
+    border-bottom-right-radius:6px;box-shadow:0 2px 10px rgba(20,168,155,.25)}
+  .ai{background:var(--card);border:1px solid var(--line);border-bottom-left-radius:6px}
+  .tool{font-size:11.5px;color:#8fd8d2;background:rgba(255,255,255,.03);
+    border:1px solid rgba(42,212,198,.22);border-radius:11px;padding:8px 11px;
+    margin-bottom:10px;max-width:86%;animation:pop .18s ease}
   @keyframes pop{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
   .typing{display:inline-flex;gap:3px;align-items:center;height:14px}
   .typing i{width:5px;height:5px;border-radius:50%;background:var(--cyan);opacity:.5;
@@ -57,24 +59,26 @@
     border-top:1px solid rgba(34,211,197,.14);
     background:linear-gradient(0deg,#071619,rgba(9,27,30,.97));
     display:flex;gap:8px;z-index:5}
-  textarea{flex:1;resize:none;height:44px;max-height:110px;background:#0d2428;
-    border:1px solid var(--line);border-radius:12px;color:var(--txt);padding:11px 13px;
-    font:15px/1.4 inherit;outline:none}
-  textarea:focus{border-color:var(--cyan)}
-  #send{width:64px;border:0;border-radius:12px;font-weight:700;color:#04211f;
-    background:linear-gradient(135deg,#2ee6d6,#12b3a2);transition:transform .1s}
+  textarea{flex:1;resize:none;height:46px;max-height:112px;background:#0b1e21;
+    border:1px solid var(--line);border-radius:14px;color:var(--txt);padding:13px 15px;
+    font:15px/1.5 inherit;outline:none;transition:border-color .18s, background .18s}
+  textarea:focus{border-color:var(--cyan);background:#0c2226}
+  #send{width:66px;border:0;border-radius:14px;font-weight:700;color:#04211f;
+    letter-spacing:.3px;background:linear-gradient(135deg,#2ad4c6,#14a89b);
+    transition:transform .1s}
   #send:active{transform:scale(.96)}
   #send:disabled{opacity:.4}
 
   /* 状态页 */
   #panel{display:none;flex:1;overflow-y:auto;padding:16px}
-  .row{display:flex;justify-content:space-between;padding:11px 0;
-    border-bottom:1px solid #122c30;font-size:13.5px}
+  .row{display:flex;justify-content:space-between;padding:13px 0;
+    border-bottom:1px solid var(--line);font-size:13.5px}
   .row span:first-child{color:var(--dim)}
   .tabs{display:flex;gap:0;border-top:1px solid rgba(34,211,197,.12);
     background:#071619}
-  .tab{flex:1;text-align:center;padding:10px 0;font-size:12.5px;color:var(--dim)}
-  .tab.on{color:var(--cyan)}
+  .tab{flex:1;text-align:center;padding:12px 0;font-size:12.5px;color:var(--dim);
+    transition:color .18s}
+  .tab.on{color:var(--cyan);font-weight:600}
 </style>
 </head>
 <body>
