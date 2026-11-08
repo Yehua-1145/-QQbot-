@@ -184,6 +184,11 @@ def _user_persona():
 A11Y_PORT = 8081
 
 
+def _quote(t):
+    import urllib.parse as _up
+    return _up.quote(t)
+
+
 def _a11y_alive():
     """Botagent App 里的无障碍服务在不在（只监听 127.0.0.1）。"""
     try:
@@ -193,24 +198,65 @@ def _a11y_alive():
         return False
 
 
+_A11Y_CONN = {"conn": None, "host": ("127.0.0.1", A11Y_PORT)}
+
+
+def _a11y_conn(timeout=8):
+    """复用一个本地 HTTP 连接（a11y 服务跟我们在同一个进程里，往返很快）。"""
+    import http.client as _hc
+    c = _A11Y_CONN.get("conn")
+    if c is not None:
+        try:
+            c.sock  # 还活着就用
+            if c.sock is not None:
+                return c
+        except Exception:
+            pass
+    c = _hc.HTTPConnection(_A11Y_CONN["host"][0], _A11Y_CONN["host"][1], timeout=timeout)
+    _A11Y_CONN["conn"] = c
+    return c
+
+
 def _a11y_get(path, timeout=8):
     import json as _j
-    import urllib.request as _u
-    url = "http://127.0.0.1:%d%s" % (A11Y_PORT, path)
-    with _u.urlopen(url, timeout=timeout) as r:
-        return _j.loads(r.read().decode("utf-8"))
+    for attempt in (0, 1):
+        try:
+            c = _a11y_conn(timeout)
+            c.request("GET", path, headers={"Connection": "keep-alive"})
+            r = c.getresponse()
+            body = r.read().decode("utf-8")
+            return _j.loads(body)
+        except Exception:
+            try:
+                _A11Y_CONN["conn"].close()
+            except Exception:
+                pass
+            _A11Y_CONN["conn"] = None
+            if attempt:
+                raise
+    return {}
 
 
 def _a11y_post(path, obj, timeout=20):
     import json as _j
-    import urllib.request as _u
-    url = "http://127.0.0.1:%d%s" % (A11Y_PORT, path)
     data = _j.dumps(obj, ensure_ascii=False).encode("utf-8")
-    req = _u.Request(url, data=data,
-                     headers={"Content-Type": "application/json; charset=utf-8"},
-                     method="POST")
-    with _u.urlopen(req, timeout=timeout) as r:
-        return _j.loads(r.read().decode("utf-8"))
+    for attempt in (0, 1):
+        try:
+            c = _a11y_conn(timeout)
+            c.request("POST", path, body=data,
+                      headers={"Content-Type": "application/json; charset=utf-8",
+                               "Connection": "keep-alive"})
+            r = c.getresponse()
+            return _j.loads(r.read().decode("utf-8"))
+        except Exception:
+            try:
+                _A11Y_CONN["conn"].close()
+            except Exception:
+                pass
+            _A11Y_CONN["conn"] = None
+            if attempt:
+                raise
+    return {}
 
 
 def _a11y_ok_hint():
@@ -360,6 +406,77 @@ UI_GUIDE = """
 - 纯图标按钮（返回、齿轮、加号）：用 icon_save 存模板后 icon_tap
 - 连文字和图标都认不出（游戏画面）：用 see 把截图交给视觉模型
 """
+
+
+
+def t_a11y_find(text=""):
+    """只查位置，不拉整个界面（比 dump 快）。"""
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    if not text:
+        return "要给我一段文字才找得到"
+    try:
+        d = _a11y_get("/find?text=" + _quote(text), timeout=6)
+    except Exception as e:
+        return "查找失败：%s" % e
+    if not d.get("found"):
+        return "屏幕上没有「%s」" % text
+    return "「%s」在 (%d, %d)%s" % (d.get("text") or text, d.get("x", 0), d.get("y", 0),
+                                   "，可以点" if d.get("clickable") else "")
+
+
+def t_a11y_longpress(text="", x=-1, y=-1):
+    """长按某个文字或坐标。"""
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    body = {}
+    if text:
+        body["text"] = text
+    elif x >= 0 and y >= 0:
+        body["x"], body["y"] = int(x), int(y)
+    else:
+        return "要说清长按哪个：文字或坐标"
+    try:
+        d = _a11y_post("/longpress", body, timeout=10)
+    except Exception as e:
+        return "长按失败：%s" % e
+    return "长按好了" if d.get("ok") else "长按没成功：%s" % d.get("err", "")
+
+
+def t_a11y_clipboard(action="get", text=""):
+    """读写剪贴板。action=get 读，set 写。"""
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    try:
+        if action == "set":
+            d = _a11y_post("/clipboard", {"set": text}, timeout=6)
+            return "已放进剪贴板" if d.get("ok") else "写剪贴板失败"
+        d = _a11y_post("/clipboard", {}, timeout=6)
+        return "剪贴板：%s" % (d.get("text") or "（空）")
+    except Exception as e:
+        return "剪贴板操作失败：%s" % e
+
+
+def t_a11y_notify(title="提醒", text=""):
+    """在手机上弹一条本地通知（不经过 QQ，适合做提醒）。"""
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    try:
+        d = _a11y_post("/notify", {"title": title, "text": text}, timeout=6)
+        return "通知已发出" if d.get("ok") else "发通知失败"
+    except Exception as e:
+        return "发通知失败：%s" % e
+
+
+def t_a11y_screen(on=1):
+    """亮屏（锁屏状态下也能亮）。"""
+    if not _a11y_alive():
+        return _a11y_ok_hint()
+    try:
+        d = _a11y_post("/screen", {"on": int(on)}, timeout=6)
+        return "屏幕已点亮（60 秒）" if d.get("ok") else "亮屏失败"
+    except Exception as e:
+        return "亮屏失败：%s" % e
 
 
 def _r18_master_on():
@@ -2231,6 +2348,21 @@ def t_zip_files(sources, dest):
 
 
 TOOLS_SPEC = [
+    {"type": "function", "function": {
+        "name": "a11y_find", "description": "Find where a text is on screen (fast, no full dump).",
+        "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "a11y_longpress", "description": "Long press a text element or coordinates.",
+        "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "x": {"type": "integer"}, "y": {"type": "integer"}}}}},
+    {"type": "function", "function": {
+        "name": "a11y_clipboard", "description": "Read or write the clipboard. action=get|set.",
+        "parameters": {"type": "object", "properties": {"action": {"type": "string"}, "text": {"type": "string"}}}}},
+    {"type": "function", "function": {
+        "name": "a11y_notify", "description": "Post a local phone notification (no QQ needed).",
+        "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "text": {"type": "string"}}}}},
+    {"type": "function", "function": {
+        "name": "a11y_screen", "description": "Wake the screen for a minute.",
+        "parameters": {"type": "object", "properties": {"on": {"type": "integer"}}}}},
     {"type": "function", "function": {
         "name": "run_shell", "description": "Run a shell command with root.",
         "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}, "timeout": {"type": "integer"}}, "required": ["cmd"]}}},

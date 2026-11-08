@@ -199,6 +199,7 @@ public class MainActivity extends Activity {
 
     // ---------- 运行时的 UI 反馈 ----------
     void uiLog(final String msg) {
+        android.util.Log.i("botagent", msg);
         // 同时写一份日志文件，方便 adb 侧排查
         try {
             java.io.File f = new java.io.File(getFilesDir(), "rt.log");
@@ -311,6 +312,43 @@ public class MainActivity extends Activity {
             }
         }
         openAppSettings();
+    }
+
+    Container container() {
+        return new Container(this);
+    }
+
+    static final int REQ_DEB = 4351;
+
+    void pickDeb() {
+        try {
+            android.content.Intent i = new android.content.Intent(
+                    android.content.Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            i.setType("*/*");
+            startActivityForResult(i, REQ_DEB);
+        } catch (Exception e) {
+            uiLog("打不开文件选择器：" + e);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, android.content.Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != REQ_DEB || res != RESULT_OK || data == null || data.getData() == null) {
+            return;
+        }
+        final android.net.Uri uri = data.getData();
+        new Thread(new DebImporter(this, uri)).start();
+    }
+
+    void createContainer() {
+        new Thread(new ContainerMaker(this)).start();
+    }
+
+    /** 容器里跑一条命令（调试/装包用）。 */
+    void containerRun(String cmdline) {
+        new Thread(new ContainerRunner(this, cmdline)).start();
     }
 
     boolean runtimeReady() {
@@ -478,6 +516,33 @@ class Bridge {
     @JavascriptInterface
     public int runPort() {
         return RuntimeManager.port;
+    }
+
+    @JavascriptInterface
+    public boolean containerReady() {
+        return act.container().ready();
+    }
+
+    @JavascriptInterface
+    public String containerInfo() {
+        Container c = act.container();
+        long mb = c.totalBytes() / 1048576;
+        return c.ready() ? ("已就绪，" + mb + " MB") : "未创建";
+    }
+
+    @JavascriptInterface
+    public void containerCreate() {
+        act.createContainer();
+    }
+
+    @JavascriptInterface
+    public void containerPickDeb() {
+        act.runOnUiThread(new DebPicker(act));
+    }
+
+    @JavascriptInterface
+    public void containerExec(String cmd) {
+        act.containerRun(cmd);
     }
 
     @JavascriptInterface
@@ -815,6 +880,108 @@ class SettingsOpener implements Runnable {
             act.openAutoStart();
         } else {
             act.openAppSettings();
+        }
+    }
+}
+
+/** 建容器（后台线程）。 */
+class ContainerMaker implements Runnable {
+
+    private final MainActivity act;
+
+    ContainerMaker(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void run() {
+        act.uiLog("容器：开始创建");
+        String err = act.container().create(act);
+        if (err == null || err.length() == 0) {
+            act.uiLog("容器：创建完成");
+        } else {
+            act.uiLog("容器：" + err);
+        }
+        act.uiRefresh();
+    }
+}
+
+/** 在容器里跑一条命令。 */
+class ContainerRunner implements Runnable {
+
+    private final MainActivity act;
+    private final String cmdline;
+
+    ContainerRunner(MainActivity a, String cmd) {
+        this.act = a;
+        this.cmdline = cmd == null ? "" : cmd.trim();
+    }
+
+    @Override
+    public void run() {
+        if (cmdline.length() == 0) {
+            act.uiLog("容器：命令为空");
+            return;
+        }
+        act.uiLog("容器$ " + cmdline);
+        act.container().run(new String[]{"/bin/sh", "-c", cmdline}, 300, act);
+        act.uiRefresh();
+    }
+}
+
+/** 主线程打开文件选择器。 */
+class DebPicker implements Runnable {
+
+    private final MainActivity act;
+
+    DebPicker(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void run() {
+        act.pickDeb();
+    }
+}
+
+/** 后台线程：把选中的文件拷进容器并安装。 */
+class DebImporter implements Runnable {
+
+    private final MainActivity act;
+    private final android.net.Uri uri;
+
+    DebImporter(MainActivity a, android.net.Uri u) {
+        this.act = a;
+        this.uri = u;
+    }
+
+    @Override
+    public void run() {
+        try {
+            String name = "package.deb";
+            try {
+                String seg = uri.getLastPathSegment();
+                if (seg != null && seg.endsWith(".deb")) {
+                    name = seg.substring(seg.lastIndexOf('/') + 1);
+                }
+            } catch (Exception ignored) {
+            }
+            act.uiLog("容器：导入 " + name);
+            java.io.InputStream in = act.getContentResolver().openInputStream(uri);
+            if (in == null) {
+                act.uiLog("容器：读不到这个文件");
+                return;
+            }
+            String guest = act.container().importFile(in, name, act);
+            if (guest == null) {
+                return;
+            }
+            act.uiLog("容器：开始安装（可能要一两分钟）");
+            act.container().installDeb(guest, act);
+            act.uiLog("容器：安装流程结束");
+            act.uiRefresh();
+        } catch (Exception e) {
+            act.uiLog("容器：导入失败 " + e);
         }
     }
 }

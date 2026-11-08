@@ -168,6 +168,22 @@
     </div>
   </div>
 
+  <!-- 本地容器（可选） -->
+  <div class="card">
+    <h3>⑥ 本地容器（可选）</h3>
+    <p>在手机里放一个 Ubuntu，用自带的 proot 跑起来。给需要 Linux 环境的部件用。</p>
+    <div class="hint" id="ctninfo">状态：检查中…</div>
+    <button class="ghost" id="ctncreate">创建容器（下载约 26 MB）</button>
+    <button class="ghost" id="ctnpick">导入安装包（.deb）</button>
+    <label>容器里跑命令（调试用）</label>
+    <input id="ctncmd" placeholder="apt-get --version" autocomplete="off">
+    <button class="ghost" id="ctnrun">执行</button>
+    <div class="warnbox">
+      容器只提供环境，装什么由你自己决定。<br>
+      App 不下载、不分发任何第三方软件，也不代替你登录任何服务。
+    </div>
+  </div>
+
   <div class="card">
     <h3>装好之后能干什么</h3>
     <ul class="steps">
@@ -241,6 +257,15 @@ function probeAstrbot(){
   return has;
 }
 
+function probeContainer(){
+  try{
+    const on = B && B.containerReady ? B.containerReady() : false;
+    const info = B && B.containerInfo ? B.containerInfo() : "";
+    const el = $("ctninfo");
+    if(el) el.textContent = "状态：" + (info || (on ? "已就绪" : "未创建"));
+  }catch(e){}
+}
+
 function fillProto(){
   try{
     const v = B && B.protoWs ? B.protoWs() : "";
@@ -289,7 +314,7 @@ function probeRuntime(){
 }
 
 async function refreshAll(){
-  probeA11y(); probeAstrbot(); probeConfig(); probeRuntime(); probeBattery(); fillProto();
+  probeA11y(); probeAstrbot(); probeConfig(); probeRuntime(); probeBattery(); fillProto(); probeContainer();
   const d = await probeWeb();
   if(d){
     $("sub").textContent = "本地服务运行中" + (d.online ? "，QQ 在线" : "，QQ 未登录");
@@ -343,6 +368,30 @@ window.rtDone = function(m){
 };
 
 const START_CMD = "bash ~/aibot/start.sh";
+
+$("ctncreate").onclick = () => {
+  try{
+    const el = $("rtlog");
+    if(el){ el.textContent = ""; el.style.display = "block"; }
+    toast("开始建容器…");
+    if(B && B.containerCreate) B.containerCreate();
+  }catch(e){ toast("建容器失败"); }
+};
+
+$("ctnpick").onclick = () => {
+  try{ if(B && B.containerPickDeb) B.containerPickDeb(); else toast("不支持"); }
+  catch(e){ toast("打不开选择器"); }
+};
+
+$("ctnrun").onclick = () => {
+  try{
+    const cmd = ($("ctncmd").value || "").trim();
+    if(!cmd){ toast("先输一条命令"); return; }
+    const el = $("rtlog");
+    if(el){ el.style.display = "block"; }
+    if(B && B.containerExec) B.containerExec(cmd);
+  }catch(e){ toast("执行失败"); }
+};
 
 $("protosave").onclick = () => {
   try{

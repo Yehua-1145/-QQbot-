@@ -168,7 +168,31 @@ public class A11yService extends AccessibilityService {
         if (path.equals("/foreground")) return "{\"ok\":true,\"pkg\":\"" + esc(foregroundPkg) + "\"}";
         if (path.equals("/dump")) {
             int limit = intArg(query, "limit", 40);
-            return dump(limit);
+            String filter = strArg(query, "text");
+            return dump(limit, filter);
+        }
+        if (path.equals("/find")) {
+            String q = strArg(query, "text");
+            if (q == null || q.length() == 0) return "{\"ok\":false,\"err\":\"need text\"}";
+            return find(q);
+        }
+        if (path.equals("/longpress")) {
+            String text = strArg(body, "text");
+            if (text != null && text.length() > 0) return longPressText(text);
+            int x = intArg(body, "x", -1), y = intArg(body, "y", -1);
+            if (x >= 0 && y >= 0) return longPressXY(x, y);
+            return "{\"ok\":false,\"err\":\"need text or x/y\"}";
+        }
+        if (path.equals("/clipboard")) {
+            String set = strArg(body, "set");
+            if (set != null) return clipboardSet(set);
+            return clipboardGet();
+        }
+        if (path.equals("/notify")) {
+            return notify(strArg(body, "title"), strArg(body, "text"));
+        }
+        if (path.equals("/screen")) {
+            return screen(intArg(body, "on", 1) == 1);
         }
         if (path.equals("/shot")) return shot();
         if (path.equals("/tap")) {
@@ -194,11 +218,16 @@ public class A11yService extends AccessibilityService {
 
     // ---------------- 功能实现 ----------------
 
-    private String dump(int limit) {
+    private String dump(int limit, String filter) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return "{\"ok\":true,\"pkg\":\"" + esc(foregroundPkg) + "\",\"nodes\":[]}";
         List<String> items = new ArrayList<>();
-        walk(root, items, 0, limit * 3);
+        walk(root, items, 0, limit * 3, filter);
+        if (filter != null && filter.length() > 0 && items.isEmpty()) {
+            // 精确过滤没命中时，退一步返回全量前 limit 条，方便模型自己找
+            items.clear();
+            walk(root, items, 0, limit * 3, null);
+        }
         StringBuilder sb = new StringBuilder();
         sb.append("{\"ok\":true,\"pkg\":\"").append(esc(foregroundPkg)).append("\",\"nodes\":[");
         int n = 0;
@@ -212,14 +241,30 @@ public class A11yService extends AccessibilityService {
         return sb.toString();
     }
 
-    private void walk(AccessibilityNodeInfo node, List<String> out, int depth, int cap) {
+    private void walk(AccessibilityNodeInfo node, List<String> out, int depth, int cap, String filter) {
         if (node == null || depth > 40 || out.size() >= cap) return;
         CharSequence text = node.getText();
         CharSequence desc = node.getContentDescription();
         String t = text == null ? "" : text.toString().trim();
         String d = desc == null ? "" : desc.toString().trim();
         boolean clickable = node.isClickable();
-        if (t.length() > 0 || d.length() > 0 || clickable) {
+        boolean visible = true;
+        try { visible = node.isVisibleToUser(); } catch (Exception ignored) { }
+        if (!visible) {
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo ch0 = null;
+                try { ch0 = node.getChild(i); } catch (Exception ignored) { }
+                if (ch0 != null) walk(ch0, out, depth + 1, cap, filter);
+            }
+            return;
+        }
+        boolean hit = true;
+        if (filter != null && filter.length() > 0) {
+            String low = filter.toLowerCase(Locale.ROOT);
+            hit = t.toLowerCase(Locale.ROOT).contains(low)
+                    || d.toLowerCase(Locale.ROOT).contains(low);
+        }
+        if (hit && (t.length() > 0 || d.length() > 0 || clickable)) {
             Rect r = new Rect();
             node.getBoundsInScreen(r);
             if (r.width() > 0 && r.height() > 0) {
@@ -239,7 +284,7 @@ public class A11yService extends AccessibilityService {
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo ch = null;
             try { ch = node.getChild(i); } catch (Exception ignored) { }
-            if (ch != null) walk(ch, out, depth + 1, cap);
+            if (ch != null) walk(ch, out, depth + 1, cap, filter);
         }
     }
 
@@ -274,6 +319,106 @@ public class A11yService extends AccessibilityService {
             }
         }
         return needClickable ? null : loose;
+    }
+
+    /** 按文本找元素，只返回位置（比 dump 全量快）。 */
+    private String find(String q) {
+        AccessibilityNodeInfo n = findTextNode(q, false);
+        if (n == null) return "{\"ok\":true,\"found\":false}";
+        Rect r = new Rect();
+        n.getBoundsInScreen(r);
+        String t = n.getText() == null ? "" : n.getText().toString();
+        return "{\"ok\":true,\"found\":true,\"x\":" + r.centerX() + ",\"y\":" + r.centerY()
+                + ",\"clickable\":" + n.isClickable() + ",\"text\":\"" + esc(t) + "\"}";
+    }
+
+    /** 长按文本元素。 */
+    private String longPressText(String text) {
+        AccessibilityNodeInfo n = findTextNode(text, false);
+        if (n == null) return "{\"ok\":false,\"err\":\"not found\"}";
+        Rect r = new Rect();
+        n.getBoundsInScreen(r);
+        return longPressXY(r.centerX(), r.centerY());
+    }
+
+    private String longPressXY(int x, int y) {
+        try {
+            boolean ok = dispatchGestureSimple(x, y);
+            return ok ? "{\"ok\":true}" : "{\"ok\":false,\"err\":\"dispatch failed\"}";
+        } catch (Throwable e) {
+            return "{\"ok\":false,\"err\":\"" + esc(String.valueOf(e)) + "\"}";
+        }
+    }
+
+    private boolean dispatchGestureSimple(int x, int y) {
+        return GestureHelper.longPress(this, x, y);
+    }
+
+    /** 读/写剪贴板。 */
+    private String clipboardGet() {
+        try {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    getSystemService(CLIPBOARD_SERVICE);
+            CharSequence t = cm.getPrimaryClip() != null && cm.getPrimaryClip().getItemCount() > 0
+                    ? cm.getPrimaryClip().getItemAt(0).coerceToText(this) : "";
+            return "{\"ok\":true,\"text\":\"" + esc(t == null ? "" : t.toString()) + "\"}";
+        } catch (Throwable e) {
+            return "{\"ok\":false,\"err\":\"" + esc(String.valueOf(e)) + "\"}";
+        }
+    }
+
+    private String clipboardSet(String text) {
+        try {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("bot", text));
+            return "{\"ok\":true}";
+        } catch (Throwable e) {
+            return "{\"ok\":false,\"err\":\"" + esc(String.valueOf(e)) + "\"}";
+        }
+    }
+
+    /** 发一条本地通知（提醒用，不经过 QQ）。 */
+    private String notify(String title, String text) {
+        try {
+            android.app.NotificationManager nm = (android.app.NotificationManager)
+                    getSystemService(NOTIFICATION_SERVICE);
+            android.app.Notification.Builder b;
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                android.app.NotificationChannel ch = new android.app.NotificationChannel(
+                        "botagent_msg", "机器人提醒",
+                        android.app.NotificationManager.IMPORTANCE_DEFAULT);
+                nm.createNotificationChannel(ch);
+                b = new android.app.Notification.Builder(this, "botagent_msg");
+            } else {
+                b = new android.app.Notification.Builder(this);
+            }
+            b.setContentTitle(title == null ? "Botagent" : title)
+                    .setContentText(text == null ? "" : text)
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setAutoCancel(true);
+            nm.notify((int) (System.currentTimeMillis() % 100000), b.build());
+            return "{\"ok\":true}";
+        } catch (Throwable e) {
+            return "{\"ok\":false,\"err\":\"" + esc(String.valueOf(e)) + "\"}";
+        }
+    }
+
+    /** 亮屏/常亮。 */
+    private String screen(boolean on) {
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            if (on) {
+                android.os.PowerManager.WakeLock wl =
+                        pm.newWakeLock(android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK
+                                | android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP, "bot:screen");
+                wl.acquire(60000);
+                return "{\"ok\":true,\"awake\":60}";
+            }
+            return "{\"ok\":true}";
+        } catch (Throwable e) {
+            return "{\"ok\":false,\"err\":\"" + esc(String.valueOf(e)) + "\"}";
+        }
     }
 
     private String tapText(String text) {
