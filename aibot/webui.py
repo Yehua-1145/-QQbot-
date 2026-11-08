@@ -202,8 +202,36 @@ def _load_token():
 TOKEN = _load_token()
 PORT = int(_os_paths.environ.get("BOTAGENT_PORT") or 8080)
 MODE_FILE = _HOME_ROOT + "/aibot/mode.txt"
-QR_PATH = ("/data/data/com.astrbot.astrbot_android/files/usr/var/lib/proot-distro/"
-           "installed-rootfs/ubuntu/root/napcat/cache/qrcode.png")
+# 二维码从哪里找（按顺序尝试）。第一个是 AstrBot 自带的 NapCat，
+# 后面几个是我们内置容器里的（Xvfb 截图 / NapCat 自己落的图）
+QR_CANDIDATES = [
+    ("/data/data/com.astrbot.astrbot_android/files/usr/var/lib/proot-distro/"
+     "installed-rootfs/ubuntu/root/napcat/cache/qrcode.png"),
+    _HOME_ROOT + "/ubuntu/tmp/qr.png",
+    _HOME_ROOT + "/ubuntu/root/napcat/cache/qrcode.png",
+    _HOME_ROOT + "/ubuntu/opt/napcat/cache/qrcode.png",
+]
+QR_PATH = QR_CANDIDATES[0]
+
+
+def _qr_path():
+    """按新鲜程度挑一张最新的二维码图；都没有就返回第一个候选。"""
+    try:
+        import os as _o
+        import time as _t
+        best, best_age = None, None
+        for p in QR_CANDIDATES:
+            try:
+                age = _t.time() - _o.path.getmtime(p)
+            except Exception:
+                continue
+            if best is None or age < best_age:
+                best, best_age = p, age
+        if best and best_age is not None and best_age < 3600:
+            return best
+    except Exception:
+        pass
+    return QR_CANDIDATES[0]
 
 
 def _mode():
@@ -528,7 +556,7 @@ def _qr_state():
     """返回二维码图片的 mtime（用来判断新鲜度）。"""
     import os as _os
     try:
-        return {"mtime": _os.path.getmtime(QR_PATH)}
+        return {"mtime": _os.path.getmtime(_qr_path())}
     except Exception:
         return {"mtime": 0}
 
@@ -1062,7 +1090,7 @@ def _console_action(action):
         # 清掉可能存在的重启锁，否则 NapCat 会拒绝重启
         run("rm -f /data/local/tmp/.napcat.lock /data/local/tmp/.qr_restart_ts", 20)
         run("date +%s > /data/local/tmp/.qr_restart_ts", 20)
-        run("rm -f " + QR_PATH + " 2>/dev/null", 20)
+        run("rm -f " + _qr_path() + " 2>/dev/null", 20)
         # 后台重启，立刻返回；前端靠 /api/qr_url 的 waited 显示进度
         run("setsid sh /data/local/tmp/restart_nap.sh "
             ">/data/local/tmp/qr_restart.log 2>&1 < /dev/null &", 15)
@@ -1241,7 +1269,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except Exception:
                     out["nap_state"] = "unknown"
                     out["nap_phase"] = ""
-                out["qr_mtime"] = int(_os.path.getmtime(QR_PATH))
+                out["qr_mtime"] = int(_os.path.getmtime(_qr_path()))
             except Exception:
                 pass
             # 从 napcat 日志里捞最新的二维码解码 URL（PNG 没生成时也能用）
@@ -1360,9 +1388,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 import os as _os
                 import time as _t
-                _age = _t.time() - _os.path.getmtime(QR_PATH)
+                _age = _t.time() - _os.path.getmtime(_qr_path())
                 if _age < 150:
-                    with open(QR_PATH, "rb") as f:
+                    with open(_qr_path(), "rb") as f:
                         _png = f.read()
                     self.send_response(200)
                     self.send_header("Content-Type", "image/png")
@@ -1384,7 +1412,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             try:
-                with open(QR_PATH, "rb") as f:
+                with open(_qr_path(), "rb") as f:
                     data = f.read()
                 self.send_response(200)
                 self.send_header("Content-Type", "image/png")
