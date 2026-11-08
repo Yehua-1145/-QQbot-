@@ -1,3 +1,6 @@
+> **你在 v2 分支。** 这个分支是「单 APK 内置运行时」的实验版，专门的使用说明在
+> **[README-v2.md](README-v2.md)**。想要稳定版请回 [main](https://github.com/Yehua-1145/-QQbot-/tree/main)。
+
 # Botagent
 
 [![Release](https://img.shields.io/badge/release-v1.1-2ea043?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/releases/latest)
