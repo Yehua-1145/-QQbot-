@@ -91,6 +91,10 @@
     border:1px solid var(--line);border-radius:13px;padding:13px;font:13.5px/1.7 inherit;
     outline:none;resize:vertical}
   textarea:focus{border-color:var(--cyan)}
+  .hint{color:var(--dim);font-size:12px;line-height:1.8;margin-top:10px}
+  .ghost{width:100%;border:1px solid var(--line);background:rgba(255,255,255,.04);
+    color:var(--txt);border-radius:12px;padding:12px;font-size:13.5px;margin-top:12px}
+  .ghost:active{background:rgba(255,255,255,.08)}
   .savebtn{width:100%;border:0;border-radius:13px;padding:14px;font-weight:600;
     color:#04211f;background:linear-gradient(135deg,#2ad4c6,#14a89b);margin-top:12px}
 
@@ -169,6 +173,44 @@
         <button class="savebtn" id="psave">保存人设</button>
       </div>
       <div class="card"><h3>接入</h3><div id="st-cfg">读取中…</div></div>
+
+      <div class="card">
+        <h3>抓图模式</h3>
+        <div class="row"><span>深度抓图</span><span id="s-r18" class="v">—</span></div>
+        <div class="hint">默认只抓普通图源。开启后范围更大，可能包含 R18 内容。</div>
+        <button class="ghost" id="btn-r18">开启深度抓图</button>
+      </div>
+
+      <div class="card">
+        <h3>深度抓图白名单</h3>
+        <div class="hint" style="margin-top:0">开启深度抓图后，只有下面的号和群能用。留空 = 谁都不能用。</div>
+        <textarea id="wuids" placeholder="允许的 QQ 号，逗号分隔：1000001, 1000002" style="min-height:70px"></textarea>
+        <textarea id="wgroups" placeholder="允许的群号：123456789" style="min-height:70px;margin-top:8px"></textarea>
+        <button class="ghost" id="btn-wl">保存白名单</button>
+      </div>
+
+      <div class="card">
+        <h3>图库自动换新</h3>
+        <div class="row"><span>自动换新</span><span id="s-rot" class="v">—</span></div>
+        <div class="row"><span>间隔</span><span id="s-rot-h" class="v">—</span></div>
+        <div class="hint">到点自动删最旧的一批，再抓新的补上。</div>
+        <button class="ghost" id="btn-rot">切换</button>
+        <button class="ghost" id="btn-rotate-now" style="margin-top:8px">立即换新</button>
+      </div>
+
+      <div class="card">
+        <h3>备份与恢复</h3>
+        <div class="hint" style="margin-top:0">把配置、图库索引、反馈记录打包到手机「下载」目录。</div>
+        <button class="ghost" id="btn-backup">立即备份</button>
+        <button class="ghost" id="btn-restore" style="margin-top:8px">从最新备份恢复</button>
+        <div class="hint" id="bk-info"></div>
+      </div>
+
+      <div class="card">
+        <h3>关于</h3>
+        <div class="row"><span>版本</span><span id="s-ver" class="v">—</span></div>
+        <button class="ghost" id="btn-restart-nap">重启协议端（NapCat）</button>
+      </div>
     </div>
   </main>
 
@@ -228,7 +270,7 @@ function show(v){
   if (v === "log"){ loadLog(); logTimer = setInterval(function () { if (followLog) loadLog(); }, 4000); }
   if (v === "status") loadStatus();
   if (v === "tasks") loadTasks();
-  if (v === "settings") loadSettings();
+  if (v === "settings") { loadSettings(); loadMoreSettings(); }
   $("main").scrollTop = 0;
 }
 document.querySelectorAll(".tab").forEach(function (t) {
@@ -439,6 +481,119 @@ async function loadTasks(){
     $("tasklist").innerHTML = '<div class="row"><span>读不到任务</span><span>服务没启动</span></div>';
   }
 }
+
+async function apiPost(path, obj){
+  return api(path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(obj)
+  });
+}
+
+function act(action){
+  return fetch(API + "/api/control?action=" + encodeURIComponent(action),
+               {cache: "no-store"}).then(function (r) { return r.text(); });
+}
+
+let settingsCache = null;
+
+async function loadMoreSettings(){
+  try{
+    const s = await api("/api/settings");
+    settingsCache = s;
+    $("s-r18").textContent = s.r18_prefetch ? "已开启" : "已关闭";
+    $("s-r18").className = "v " + (s.r18_prefetch ? "warn" : "");
+    $("btn-r18").textContent = s.r18_prefetch ? "关闭深度抓图" : "开启深度抓图";
+    $("wuids").value = (s.r18_allowed_uids || []).join(", ");
+    $("wgroups").value = (s.r18_allowed_groups || []).join(", ");
+    $("s-rot").textContent = s.rotate_enabled ? "已开启" : "已关闭";
+    $("s-rot").className = "v " + (s.rotate_enabled ? "ok" : "");
+    $("s-rot-h").textContent = (s.rotate_hours || 24) + " 小时 / " +
+      (s.rotate_count || 40) + " 张";
+  }catch(e){
+    $("s-r18").textContent = "读不到";
+  }
+  try{
+    const b = await api("/api/backups");
+    $("bk-info").textContent = "本地备份：" + ((b.backups || []).length) +
+      " 份　版本 " + (b.local || "—");
+    $("s-ver").textContent = b.local || "—";
+  }catch(e){
+    $("s-ver").textContent = "读不到";
+  }
+}
+
+$("btn-r18").onclick = async function () {
+  const on = !(settingsCache && settingsCache.r18_prefetch);
+  try{
+    await apiPost("/api/settings", {r18_prefetch: on});
+    await loadMoreSettings();
+    toast(on ? "深度抓图已开启（记得配白名单）" : "深度抓图已关闭");
+  }catch(e){ toast("保存失败"); }
+};
+
+$("btn-wl").onclick = async function () {
+  try{
+    await apiPost("/api/settings", {
+      r18_allowed_uids: $("wuids").value,
+      r18_allowed_groups: $("wgroups").value
+    });
+    toast("白名单已保存");
+    await loadMoreSettings();
+  }catch(e){ toast("保存失败"); }
+};
+
+$("btn-rot").onclick = async function () {
+  const on = !(settingsCache && settingsCache.rotate_enabled);
+  try{
+    await apiPost("/api/settings", {rotate_enabled: on});
+    await loadMoreSettings();
+    toast(on ? "已开启自动换新" : "已关闭自动换新");
+  }catch(e){ toast("保存失败"); }
+};
+
+$("btn-rotate-now").onclick = async function () {
+  this.disabled = true;
+  this.textContent = "换新中…";
+  try{
+    const msg = await act("rotate");
+    toast((msg || "已开始").slice(0, 40));
+  }catch(e){ toast("调用失败"); }
+  this.disabled = false;
+  this.textContent = "立即换新";
+  setTimeout(loadMoreSettings, 1500);
+};
+
+$("btn-backup").onclick = async function () {
+  this.disabled = true;
+  try{
+    const msg = await act("backup");
+    toast((msg || "备份中").slice(0, 40));
+    $("bk-info").textContent = msg || "";
+  }catch(e){ toast("调用失败"); }
+  this.disabled = false;
+  setTimeout(loadMoreSettings, 1500);
+};
+
+$("btn-restore").onclick = async function () {
+  this.disabled = true;
+  try{
+    const msg = await act("restore");
+    toast((msg || "恢复中").slice(0, 40));
+  }catch(e){ toast("调用失败"); }
+  this.disabled = false;
+};
+
+$("btn-restart-nap").onclick = async function () {
+  this.disabled = true;
+  this.textContent = "重启中（约 60~75 秒）…";
+  try{ await act("restart_napcat"); toast("协议端重启中"); }
+  catch(e){ toast("调用失败"); }
+  setTimeout(function () {
+    $("btn-restart-nap").disabled = false;
+    $("btn-restart-nap").textContent = "重启协议端（NapCat）";
+  }, 8000);
+};
 
 async function loadSettings(){
   try{
