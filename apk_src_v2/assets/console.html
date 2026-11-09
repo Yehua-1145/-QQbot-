@@ -190,6 +190,16 @@
       </div>
 
       <div class="card">
+        <h3>群聊</h3>
+        <div class="hint" style="margin-top:0">只有写在这里的群才会回（群里需要 @机器人）。留空 = 不接群。</div>
+        <textarea id="gall" placeholder="允许的群号，逗号或换行：123456789" style="min-height:70px"></textarea>
+        <div class="hint">安全模式的群：强制普通模式，只发二次元/cos 图。</div>
+        <textarea id="gsafe" placeholder="安全模式的群号（可空）" style="min-height:70px;margin-top:8px"></textarea>
+        <button class="ghost" id="btn-groups">保存群聊</button>
+        <button class="ghost" id="btn-restart-bot" style="margin-top:8px">重启机器人（让改动生效）</button>
+      </div>
+
+      <div class="card">
         <h3>图库自动换新</h3>
         <div class="row"><span>自动换新</span><span id="s-rot" class="v">—</span></div>
         <div class="row"><span>间隔</span><span id="s-rot-h" class="v">—</span></div>
@@ -508,6 +518,8 @@ async function loadMoreSettings(){
     $("wgroups").value = (s.r18_allowed_groups || []).join(", ");
     $("s-rot").textContent = s.rotate_enabled ? "已开启" : "已关闭";
     $("s-rot").className = "v " + (s.rotate_enabled ? "ok" : "");
+    $("gall").value = (s.allowed_groups || []).join(", ");
+    $("gsafe").value = (s.safe_groups || []).join(", ");
     $("s-rot-h").textContent = (s.rotate_hours || 24) + " 小时 / " +
       (s.rotate_count || 40) + " 张";
   }catch(e){
@@ -541,6 +553,28 @@ $("btn-wl").onclick = async function () {
     toast("白名单已保存");
     await loadMoreSettings();
   }catch(e){ toast("保存失败"); }
+};
+
+$("btn-groups").onclick = async function () {
+  try{
+    await apiPost("/api/settings", {
+      allowed_groups: $("gall").value,
+      safe_groups: $("gsafe").value
+    });
+    toast("群聊已保存，点「重启机器人」生效");
+    await loadMoreSettings();
+  }catch(e){ toast("保存失败"); }
+};
+
+$("btn-restart-bot").onclick = async function () {
+  this.disabled = true;
+  this.textContent = "重启中…";
+  try{ await act("restart_bot"); toast("机器人重启中（约 10 秒）"); }
+  catch(e){ toast("调用失败"); }
+  setTimeout(function () {
+    $("btn-restart-bot").disabled = false;
+    $("btn-restart-bot").textContent = "重启机器人（让改动生效）";
+  }, 10000);
 };
 
 $("btn-rot").onclick = async function () {

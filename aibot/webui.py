@@ -1511,6 +1511,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "rotate_enabled": bool(cfg.get("rotate_enabled", True)),
                 "rotate_hours": int(cfg.get("rotate_hours") or 24),
                 "rotate_count": int(cfg.get("rotate_count") or 40),
+                "allowed_groups": list(cfg.get("allowed_groups") or []),
+                "safe_groups": list(cfg.get("safe_groups") or []),
             })
             return
 
@@ -1763,6 +1765,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if t.isdigit():
                         gids.append(int(t))
                 cfg["r18_allowed_groups"] = gids
+            for key in ("allowed_groups", "safe_groups"):
+                if key in body:
+                    raw = body[key]
+                    vals = []
+                    for x in (raw if isinstance(raw, list) else
+                              str(raw).replace("，", ",").replace("\n", ",")
+                              .replace(" ", ",").split(",")):
+                        t = str(x).strip()
+                        if t.isdigit():
+                            vals.append(int(t))
+                    cfg[key] = vals
             if "rotate_enabled" in body:
                 cfg["rotate_enabled"] = bool(body["rotate_enabled"])
             if "rotate_hours" in body:
