@@ -41,7 +41,7 @@ SHA256  6B14CF1554B9AB77D875C18B292BA5E6BB7E3E02F7B821F1667DF555EA8DE411
 | 状态 | ✅ 稳定，已验证 | 🧪 真机能跑，还在打磨 |
 | 适合 | 想稳定用的 | 想尝鲜、手机独立部署 |
 
-注意：手机端独立部署依赖AstrBot，个人建议直接去部署ArtrBot。
+
 > v2 的代码在分支 **[`v2-embedded-runtime`](https://github.com/Yehua-1145/-QQbot-/tree/v2-embedded-runtime)**，
 > 单 APK 自带 Python 3.14 运行时，手机上一键启动，不需要 Termux、不需要电脑。
 > 已在小米 6（无 root）上验证：装 APK → 填两个空 → 点启动 → 控制台跑在 8080。
