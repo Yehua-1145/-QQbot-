@@ -41,32 +41,45 @@
 > 小米/红米要先开：**设置 → 更多设置 → 开发者选项 → USB 安装**，
 > 否则可能提示「安装被拒绝」。装不上的话从手机浏览器直接点开 APK 也行。
 
-### 方式 B：电脑端部署（轻量）
+### 方式 B：电脑端部署（插线，带界面）
 
-`deploy/pc-lite/` 是**纯脚本**方案，脚本合计 **4 KB**，不要 Python、不要运行时、不联网下载：
+下载 `BotagentDeploy-v2.zip`（13.6 MB，已含 adb），解压后：
 
 ```
-deploy/pc-lite/
-├── deploy.ps1          3.8 KB   找 adb → 装 APK → 启动
-├── 一键部署.bat          0.3 KB   双击运行（调上面那个 ps1）
-└── Botagent.apk                 把 APK 放这（或 -Apk 指定）
+BotagentDeploy-v2/
+├── BotagentDeploy.exe   10.6 MB   双击运行
+├── adb.exe               6.3 MB   已内置，不用装 SDK
+├── AdbWinApi.dll / AdbWinUsbApi.dll
+├── botagent.ico
+└── 使用说明.txt
 ```
 
-用法：
+流程：
+
+```
+1. 把 APK 放到同目录（改名 Botagent.apk）或部署时点「选择…」
+2. 手机插 USB，开发者选项里开「USB 调试」
+3. 双击 BotagentDeploy.exe → 点「刷新」→ 选设备 → 点「开始部署」
+```
+
+它会做：
+
+```
+· 装 APK（覆盖安装，数据不动）
+· 小米/华为的「继续安装」弹窗自动点掉（用 uiautomator 找按钮，不依赖 OCR）
+· 可选：装完打开无障碍、启动 App
+· 最后显示装上的版本号
+```
+
+> 体积对比：v1.1 的部署器 46 MB（exe 11 MB + adb 6.3 MB + tesseract 2.4 MB + 构建残留）。
+> 这版 **13.6 MB**：去掉了 2.4 MB 的 tesseract（改用 uiautomator 识别弹窗），也没带构建垃圾。
+
+**给开发者的极简版**：`deploy/pc-lite/` 里是纯脚本（4 KB），要求电脑已有 adb：
 
 ```powershell
-# 双击「一键部署.bat」即可；或命令行：
-.\deploy.ps1                      # 自动挑设备、装同目录 APK、启动
-.\deploy.ps1 -A11y                # 顺手打开无障碍，不用手点
-.\deploy.ps1 -Serial 3ed565aa     # 多台手机时指定
-.\deploy.ps1 -NoLaunch            # 只装不启动
+.\deploy.ps1            # 自动挑设备、装同目录 APK、启动
+.\deploy.ps1 -A11y      # 顺手打开无障碍
 ```
-
-前提：电脑上有 `adb`（手机 platform-tools，约 12 MB）。脚本按顺序找：
-本目录 → `platform-tools\` → PATH → 常见 SDK 路径。
-
-> 对比：v1.1 的电脑端是 PyInstaller 打的 exe（11 MB，还带 tesseract 语言包，整个目录 46 MB）。
-> 这版只留脚本，**体积降了 99%**，代价是要求电脑上有 adb。
 
 ---
 
