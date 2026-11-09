@@ -28,7 +28,7 @@
 
 ## 装法
 
-### 方式 A：手机直接装（推荐）
+### 手机直接装
 
 1. 到 [Releases](https://github.com/Yehua-1145/-QQbot-/releases) 下载
    `Botagent-v2.0-beta.apk`（约 52 MB，内含 Python 运行时 + NapCat）
@@ -40,46 +40,6 @@
 
 > 小米/红米要先开：**设置 → 更多设置 → 开发者选项 → USB 安装**，
 > 否则可能提示「安装被拒绝」。装不上的话从手机浏览器直接点开 APK 也行。
-
-### 方式 B：电脑端部署（插线，带界面）
-
-下载 `BotagentDeploy-v2.zip`（13.6 MB，已含 adb），解压后：
-
-```
-BotagentDeploy-v2/
-├── BotagentDeploy.exe   10.6 MB   双击运行
-├── adb.exe               6.3 MB   已内置，不用装 SDK
-├── AdbWinApi.dll / AdbWinUsbApi.dll
-├── botagent.ico
-└── 使用说明.txt
-```
-
-流程：
-
-```
-1. 把 APK 放到同目录（改名 Botagent.apk）或部署时点「选择…」
-2. 手机插 USB，开发者选项里开「USB 调试」
-3. 双击 BotagentDeploy.exe → 点「刷新」→ 选设备 → 点「开始部署」
-```
-
-它会做：
-
-```
-· 装 APK（覆盖安装，数据不动）
-· 小米/华为的「继续安装」弹窗自动点掉（用 uiautomator 找按钮，不依赖 OCR）
-· 可选：装完打开无障碍、启动 App
-· 最后显示装上的版本号
-```
-
-> 体积对比：v1.1 的部署器 46 MB（exe 11 MB + adb 6.3 MB + tesseract 2.4 MB + 构建残留）。
-> 这版 **13.6 MB**：去掉了 2.4 MB 的 tesseract（改用 uiautomator 识别弹窗），也没带构建垃圾。
-
-**给开发者的极简版**：`deploy/pc-lite/` 里是纯脚本（4 KB），要求电脑已有 adb：
-
-```powershell
-.\deploy.ps1            # 自动挑设备、装同目录 APK、启动
-.\deploy.ps1 -A11y      # 顺手打开无障碍
-```
 
 ---
 
@@ -176,8 +136,7 @@ Botagent.apk (52.2 MB)
 ```
 apk_src_v2/          v2 的 Android 工程（不用 Gradle，走 aapt2 + javac + d8）
 aibot/               机器人本体（AI、工具、控制台后端，v1.1/v2 共用）
-deploy/pc-lite/      电脑端轻量部署（纯脚本 4 KB）
-deploy/pc/           v1.1 的 exe 部署器（历史遗留，46 MB）
+deploy/pc/           v1.1 的 Windows 插线部署器（exe，46 MB）
 build.ps1            一键构建 APK
 BUILD.md             构建说明 + 踩过的坑
 ```
