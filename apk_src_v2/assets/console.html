@@ -6,34 +6,41 @@
 <title>Botagent</title>
 <style>
   :root{
-    --bg:#08181b; --bg2:#0b2124; --card:#102326; --line:rgba(255,255,255,.07);
-    --txt:#e9f6f5; --dim:#7c9a9e; --cyan:#2ad4c6; --cyan2:#14a89b;
+    --bg:#08181b; --card:#102326; --card2:#0b1e21;
+    --line:rgba(255,255,255,.07);
+    --txt:#e9f6f5; --dim:#7c9a9e;
+    --cyan:#2ad4c6; --cyan2:#14a89b;
     --green:#3ddc97; --amber:#f5c451; --red:#f4776d;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
-    font:15px/1.55 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;overflow:hidden}
+    font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    overflow:hidden;-webkit-font-smoothing:antialiased}
   .app{display:flex;flex-direction:column;height:100%}
 
   header{display:flex;align-items:center;gap:10px;padding:12px 14px;
     background:linear-gradient(180deg,rgba(11,34,38,.96),rgba(8,24,27,.99));
-    border-bottom:1px solid rgba(34,211,197,.16);position:relative;z-index:5}
+    border-bottom:1px solid rgba(42,212,198,.14);position:relative;z-index:5}
   header::after{content:"";position:absolute;right:-30px;top:-60px;width:180px;height:180px;
     border-radius:50%;pointer-events:none;z-index:-1;
-    background:radial-gradient(circle,rgba(34,211,197,.38),rgba(34,211,197,0) 72%);
+    background:radial-gradient(circle,rgba(42,212,198,.34),rgba(42,212,198,0) 72%);
     filter:blur(40px)}
-  .back{font-size:20px;color:var(--dim);padding:4px 8px}
+  .back{font-size:22px;color:var(--dim);padding:2px 8px}
   .who{flex:1}
-  .name{font-weight:700;font-size:15px}
+  .name{font-weight:700;font-size:15.5px}
   .state{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:5px}
   .dot{width:7px;height:7px;border-radius:50%;background:#4b6b70}
-  .dot.on{background:var(--green);box-shadow:0 0 8px #34d399aa}
+  .dot.on{background:var(--green);box-shadow:0 0 8px #3ddc9799}
   .dot.off{background:var(--red)}
   .dot.warn{background:var(--amber)}
-  .iconbtn{background:transparent;border:1px solid var(--line);color:var(--txt);
-    border-radius:10px;padding:7px 11px;font-size:12.5px}
+  .iconbtn{background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--txt);
+    border-radius:11px;padding:8px 12px;font-size:12.5px}
 
-  #list{flex:1;overflow-y:auto;padding:14px 14px 6px;-webkit-overflow-scrolling:touch}
+  main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .view{display:none;padding:14px}
+  .view.on{display:block}
+
+  #v-chat{padding:14px 14px 8px}
   .msg{max-width:86%;padding:13px 15px;border-radius:16px;margin-bottom:12px;
     font-size:14.5px;line-height:1.7;white-space:pre-wrap;word-break:break-word;
     animation:pop .18s ease}
@@ -51,34 +58,65 @@
   .typing i:nth-child(3){animation-delay:.36s}
   @keyframes blink{0%,100%{opacity:.25}50%{opacity:1}}
 
-  .qrbox{display:none;padding:14px;text-align:center}
-  .qrbox img{width:220px;height:220px;background:#fff;border-radius:12px;padding:8px}
-  .qrbox p{color:var(--dim);font-size:12.5px;margin:10px 0 0}
-
-  footer{padding:10px 12px calc(10px + env(safe-area-inset-bottom));
-    border-top:1px solid rgba(34,211,197,.14);
-    background:linear-gradient(0deg,#071619,rgba(9,27,30,.97));
-    display:flex;gap:8px;z-index:5}
-  textarea{flex:1;resize:none;height:46px;max-height:112px;background:#0b1e21;
-    border:1px solid var(--line);border-radius:14px;color:var(--txt);padding:13px 15px;
-    font:15px/1.5 inherit;outline:none;transition:border-color .18s, background .18s}
-  textarea:focus{border-color:var(--cyan);background:#0c2226}
-  #send{width:66px;border:0;border-radius:14px;font-weight:700;color:#04211f;
-    letter-spacing:.3px;background:linear-gradient(135deg,#2ad4c6,#14a89b);
-    transition:transform .1s}
-  #send:active{transform:scale(.96)}
-  #send:disabled{opacity:.4}
-
-  /* 状态页 */
-  #panel{display:none;flex:1;overflow-y:auto;padding:16px}
-  .row{display:flex;justify-content:space-between;padding:13px 0;
-    border-bottom:1px solid var(--line);font-size:13.5px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:16px;margin-bottom:12px}
+  .card h3{font-size:13px;color:var(--dim);font-weight:600;margin:0 0 12px;
+    letter-spacing:.3px}
+  .row{display:flex;justify-content:space-between;align-items:center;
+    padding:9px 0;font-size:13.5px;border-bottom:1px solid rgba(255,255,255,.04)}
+  .row:last-child{border-bottom:0}
   .row span:first-child{color:var(--dim)}
-  .tabs{display:flex;gap:0;border-top:1px solid rgba(34,211,197,.12);
-    background:#071619}
-  .tab{flex:1;text-align:center;padding:12px 0;font-size:12.5px;color:var(--dim);
+  .v{font-variant-numeric:tabular-nums}
+  .ok{color:var(--green)} .bad{color:var(--red)} .warn{color:var(--amber)}
+
+  #logbox{background:#061215;border:1px solid var(--line);border-radius:14px;
+    padding:12px;font:11.5px/1.65 ui-monospace,Consolas,monospace;color:#90d9c8;
+    flex:1;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0}
+  .logwrap{height:calc(100vh - 200px);display:flex;flex-direction:column;gap:10px}
+  .logbar{display:flex;gap:8px}
+  .logbar button{flex:1;border:1px solid var(--line);background:rgba(255,255,255,.04);
+    color:var(--txt);border-radius:11px;padding:10px;font-size:13px}
+  .logbar button.on{background:rgba(42,212,198,.16);border-color:rgba(42,212,198,.4);
+    color:var(--cyan)}
+
+  .task{display:flex;align-items:center;gap:10px;padding:12px 0;
+    border-bottom:1px solid rgba(255,255,255,.04)}
+  .task:last-child{border-bottom:0}
+  .task .t{flex:1;font-size:13.5px;line-height:1.5}
+  .task .t small{display:block;color:var(--dim);font-size:11.5px;margin-top:2px}
+  .task button{border:1px solid rgba(42,212,198,.35);background:rgba(42,212,198,.12);
+    color:var(--cyan);border-radius:9px;padding:7px 11px;font-size:12px}
+
+  textarea{width:100%;min-height:150px;background:var(--card2);color:var(--txt);
+    border:1px solid var(--line);border-radius:13px;padding:13px;font:13.5px/1.7 inherit;
+    outline:none;resize:vertical}
+  textarea:focus{border-color:var(--cyan)}
+  .savebtn{width:100%;border:0;border-radius:13px;padding:14px;font-weight:600;
+    color:#04211f;background:linear-gradient(135deg,#2ad4c6,#14a89b);margin-top:12px}
+
+  .composer{padding:10px 12px;border-top:1px solid rgba(42,212,198,.14);
+    background:linear-gradient(0deg,#071619,rgba(9,27,30,.97));
+    display:flex;gap:8px}
+  .composer.hide{display:none}
+  textarea#input{flex:1;min-height:46px;max-height:112px;height:46px;padding:13px 15px;
+    font-size:15px;background:#0b1e21;border-radius:14px;border:1px solid var(--line);
+    resize:none;min-height:46px}
+  #send{width:66px;border:0;border-radius:14px;font-weight:700;color:#04211f;
+    letter-spacing:.3px;background:linear-gradient(135deg,#2ad4c6,#14a89b)}
+  #send:disabled{opacity:.45}
+
+  .tabs{display:flex;border-top:1px solid rgba(42,212,198,.12);background:#071619}
+  .tab{flex:1;text-align:center;padding:12px 0 14px;font-size:12.5px;color:var(--dim);
     transition:color .18s}
   .tab.on{color:var(--cyan);font-weight:600}
+
+  .sheet{position:fixed;inset:0;background:rgba(4,12,14,.86);z-index:30;display:none;
+    align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:24px}
+  .sheet.on{display:flex}
+  .sheet img{width:min(78vw,300px);background:#fff;border-radius:14px;padding:10px}
+  .sheet p{color:var(--dim);font-size:13px;margin:0}
+  .sheet button{border:1px solid var(--line);background:rgba(255,255,255,.06);
+    color:var(--txt);border-radius:12px;padding:11px 22px;font-size:13.5px}
 </style>
 </head>
 <body>
@@ -92,23 +130,57 @@
     <button class="iconbtn" id="qrbtn">扫码</button>
   </header>
 
-  <div id="list"></div>
-  <div id="panel"></div>
-  <div class="qrbox" id="qrbox">
-    <img id="qrimg" alt="二维码">
-    <p>用要当机器人的 QQ 扫这张码</p>
-  </div>
+  <main id="main">
+    <div class="view on" id="v-chat"></div>
 
-  <footer id="composer">
+    <div class="view" id="v-status">
+      <div class="card"><h3>运行状态</h3><div id="st-run">读取中…</div></div>
+      <div class="card"><h3>模型</h3><div id="st-model">读取中…</div></div>
+      <div class="card"><h3>图库</h3><div id="st-gallery">读取中…</div></div>
+    </div>
+
+    <div class="view" id="v-log">
+      <div class="logwrap">
+        <div class="logbar">
+          <button id="logpause" class="on">实时跟随</button>
+          <button id="logrefresh">刷新</button>
+          <button id="logcopy">复制</button>
+        </div>
+        <pre id="logbox">读取中…</pre>
+      </div>
+    </div>
+
+    <div class="view" id="v-tasks">
+      <div class="card"><h3>定时任务</h3><div id="tasklist">读取中…</div></div>
+    </div>
+
+    <div class="view" id="v-settings">
+      <div class="card"><h3>人设（系统提示词）</h3>
+        <textarea id="persona" placeholder="留空则用默认人设"></textarea>
+        <button class="savebtn" id="psave">保存人设</button>
+      </div>
+      <div class="card"><h3>接入</h3><div id="st-cfg">读取中…</div></div>
+    </div>
+  </main>
+
+  <div class="composer" id="composer">
     <textarea id="input" placeholder="发指令…" rows="1"></textarea>
     <button id="send">发送</button>
-  </footer>
+  </div>
 
   <div class="tabs">
-    <div class="tab on" id="tab-chat">对话</div>
-    <div class="tab" id="tab-status">状态</div>
-    <div class="tab" id="tab-qr">扫码</div>
+    <div class="tab on" data-v="chat">对话</div>
+    <div class="tab" data-v="status">状态</div>
+    <div class="tab" data-v="log">日志</div>
+    <div class="tab" data-v="tasks">任务</div>
+    <div class="tab" data-v="settings">设置</div>
   </div>
+</div>
+
+<div class="sheet" id="sheet">
+  <img id="qrimg" alt="二维码">
+  <p>用要当机器人的 QQ 扫这张码</p>
+  <button id="sheetclose">关闭</button>
 </div>
 
 <script>
@@ -118,14 +190,59 @@ try { if (B && B.runPort) PORT = B.runPort() || 8080; } catch (e) {}
 const API = "http://127.0.0.1:" + PORT;
 
 const $ = (id) => document.getElementById(id);
-const list = $("list");
+let view = "chat";
+let logTimer = null, followLog = true;
 
+function api(path, opt){
+  return fetch(API + path, opt).then(function (r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  });
+}
+
+function show(v){
+  view = v;
+  ["chat", "status", "log", "tasks", "settings"].forEach(function (k) {
+    $("v-" + k).classList.toggle("on", k === v);
+  });
+  document.querySelectorAll(".tab").forEach(function (t) {
+    t.classList.toggle("on", t.dataset.v === v);
+  });
+  $("composer").classList.toggle("hide", v !== "chat");
+
+  clearInterval(logTimer);
+  if (v === "log"){ loadLog(); logTimer = setInterval(function () { if (followLog) loadLog(); }, 4000); }
+  if (v === "status") loadStatus();
+  if (v === "tasks") loadTasks();
+  if (v === "settings") loadSettings();
+  $("main").scrollTop = 0;
+}
+document.querySelectorAll(".tab").forEach(function (t) {
+  t.onclick = function () { show(t.dataset.v); };
+});
+
+async function refreshHead(){
+  try{
+    const d = await api("/api/qq");
+    const on = d.online === true;
+    $("dot").className = "dot " + (on ? "on" : (d.bot ? "warn" : "off"));
+    $("state").textContent = on ? ("QQ 在线" + (d.uin ? " " + d.uin : ""))
+      : (d.bot ? "等待扫码" : "服务未启动");
+    return d;
+  }catch(e){
+    $("dot").className = "dot off";
+    $("state").textContent = "服务未启动";
+    return null;
+  }
+}
+
+const list = $("v-chat");
 function addMsg(text, mine){
   const d = document.createElement("div");
   d.className = "msg " + (mine ? "me" : "ai");
   d.textContent = text;
   list.appendChild(d);
-  list.scrollTop = list.scrollHeight;
+  $("main").scrollTop = $("main").scrollHeight;
   return d;
 }
 function addTool(name, args){
@@ -133,28 +250,15 @@ function addTool(name, args){
   d.className = "tool";
   d.textContent = "🔧 " + name + (args ? "  " + args : "");
   list.appendChild(d);
-  list.scrollTop = list.scrollHeight;
+  $("main").scrollTop = $("main").scrollHeight;
 }
 function typing(){
   const d = document.createElement("div");
   d.className = "msg ai";
   d.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
   list.appendChild(d);
-  list.scrollTop = list.scrollHeight;
+  $("main").scrollTop = $("main").scrollHeight;
   return d;
-}
-
-async function refresh(){
-  try{
-    const r = await fetch(API + "/api/qq", {cache:"no-store"});
-    const d = await r.json();
-    const on = d.online === true;
-    $("dot").className = "dot " + (on ? "on" : (d.bot ? "warn" : "off"));
-    $("state").textContent = on ? "QQ 在线" : (d.bot ? "等待扫码" : "协议端未连");
-  }catch(e){
-    $("dot").className = "dot off";
-    $("state").textContent = "服务未启动";
-  }
 }
 
 async function send(){
@@ -162,12 +266,11 @@ async function send(){
   const text = (el.value || "").trim();
   if (!text) return;
   el.value = "";
-  el.style.height = "44px";
+  el.style.height = "46px";
   addMsg(text, true);
   $("send").disabled = true;
   const t = typing();
-  let first = true;
-  let acc = "";
+  let first = true, acc = "", box = null;
   try{
     const res = await fetch(API + "/api/stream", {
       method: "POST",
@@ -179,29 +282,26 @@ async function send(){
     const dec = new TextDecoder();
     let buf = "";
     while (true){
-      const {done, value} = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, {stream: true});
+      const step = await reader.read();
+      if (step.done) break;
+      buf += dec.decode(step.value, {stream: true});
       let idx;
       while ((idx = buf.indexOf("\n\n")) >= 0){
         const raw = buf.slice(0, idx);
         buf = buf.slice(idx + 2);
         let ev = "message", data = "";
-        raw.split("\n").forEach(line => {
-          if (line.startsWith("event:")) ev = line.slice(6).trim();
-          else if (line.startsWith("data:")) data += line.slice(5).trim();
+        raw.split("\n").forEach(function (line) {
+          if (line.indexOf("event:") === 0) ev = line.slice(6).trim();
+          else if (line.indexOf("data:") === 0) data += line.slice(5).trim();
         });
         if (!data) continue;
-        let obj = null;
+        let obj;
         try { obj = JSON.parse(data); } catch(e) { continue; }
         if (ev === "text"){
           if (first){ t.remove(); first = false; }
           acc += (obj.t || "");
-          if (!acc.el){
-            acc.el = addMsg(acc);
-          } else {
-            acc.el.textContent = acc;
-          }
+          if (!box) box = addMsg(acc);
+          else box.textContent = acc;
         } else if (ev === "tool"){
           if (first){ t.remove(); first = false; }
           addTool(obj.name || "", obj.args || "");
@@ -213,69 +313,171 @@ async function send(){
     addMsg("（出错了：" + e.message + "）", false);
   }
   $("send").disabled = false;
-  refresh();
+  refreshHead();
 }
 
 $("send").onclick = send;
-$("input").addEventListener("keydown", (e) => {
+$("input").addEventListener("keydown", function (e) {
   if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); send(); }
 });
-$("input").addEventListener("input", () => {
+$("input").addEventListener("input", function () {
   const el = $("input");
-  el.style.height = "44px";
-  el.style.height = Math.min(110, el.scrollHeight) + "px";
+  el.style.height = "46px";
+  el.style.height = Math.min(112, el.scrollHeight) + "px";
 });
-$("back").onclick = () => { try{ if (B && B.reload) B.reload(); }catch(e){} };
 
-$("qrbtn").onclick = () => showTab("qr");
-$("tab-chat").onclick = () => showTab("chat");
-$("tab-status").onclick = () => showTab("status");
-$("tab-qr").onclick = () => showTab("qr");
-
-function showTab(which){
-  ["chat","status","qr"].forEach(k => {
-    $("tab-" + k).classList.toggle("on", k === which);
-  });
-  $("list").style.display = which === "chat" ? "block" : "none";
-  $("panel").style.display = which === "status" ? "block" : "none";
-  $("qrbox").style.display = which === "qr" ? "block" : "none";
-  $("composer").style.display = which === "chat" ? "flex" : "none";
-  if (which === "qr") loadQr();
-  if (which === "status") loadStatus();
-}
-
-function loadQr(){
-  const img = $("qrimg");
-  img.src = API + "/api/qr.png?t=" + Date.now();
+function rowHtml(k, v, cls){
+  return '<div class="row"><span>' + k + '</span><span class="v ' +
+    (cls || "") + '">' + v + '</span></div>';
 }
 
 async function loadStatus(){
-  const p = $("panel");
-  p.innerHTML = "读取中…";
   try{
-    const r = await fetch(API + "/api/qq", {cache:"no-store"});
-    const d = await r.json();
-    const rows = [
-      ["服务", d.bot ? "运行中" : "未运行"],
-      ["QQ", d.online === true ? "在线" : "未登录"],
-      ["协议端", d.proot ? "已连接" : "未连接"],
-      ["端口", PORT],
-      ["模式", d.mode || "normal"],
-    ];
-    p.innerHTML = rows.map(r =>
-      `<div class="row"><span>${r[0]}</span><span>${r[1]}</span></div>`).join("");
+    const q = await api("/api/qq");
+    const online = q.online === true;
+    $("st-run").innerHTML =
+      rowHtml("服务", q.bot ? "运行中" : "未运行", q.bot ? "ok" : "bad") +
+      rowHtml("QQ", online ? "在线" : "未登录", online ? "ok" : "bad") +
+      rowHtml("协议端", q.proot ? "已连接" : "未连接", q.proot ? "ok" : "bad") +
+      rowHtml("账号", q.uin || "—") +
+      rowHtml("端口", (q.ports && q.ports.length) ? q.ports.join(" / ") : "—") +
+      rowHtml("模式", q.mode || "普通");
   }catch(e){
-    p.innerHTML = '<div class="row"><span>状态</span><span>读不到（服务没起）</span></div>';
+    $("st-run").innerHTML = rowHtml("服务", "读不到（没启动）", "bad");
+  }
+  try{
+    const m = await api("/api/model");
+    $("st-model").innerHTML =
+      rowHtml("供应商", m.provider || "—") +
+      rowHtml("模型", m.model || "—") +
+      rowHtml("Key", m.key_set ? ("已配置 " + (m.key_hint || "")) : "没配", m.key_set ? "ok" : "bad") +
+      rowHtml("延迟", m.last_latency ? (m.last_latency + " ms") : "—") +
+      rowHtml("错误", m.last_error || "无", m.last_error ? "bad" : "");
+  }catch(e){
+    $("st-model").innerHTML = rowHtml("模型", "读不到", "bad");
+  }
+  try{
+    const g = await api("/api/gallery");
+    $("st-gallery").innerHTML =
+      rowHtml("总数", String(g.total || 0)) +
+      rowHtml("可用", String(g.safe || 0), "ok") +
+      rowHtml("cos / set / manga",
+        (g.cos || 0) + " / " + (g.set || 0) + " / " + (g.manga || 0));
+  }catch(e){
+    $("st-gallery").innerHTML = rowHtml("图库", "读取失败", "bad");
   }
 }
 
-refresh();
-setInterval(refresh, 6000);
-setTimeout(() => {
-  if (!list.children.length){
-    addMsg("我是 Botagent。可以让我查电量、开 App、搜东西、定提醒。\n先让我启动服务，再跟我说话。");
+async function loadLog(){
+  try{
+    const d = await api("/api/log?lines=220");
+    const box = $("logbox");
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    box.textContent = d.lines || "（日志为空）";
+    if (followLog && atBottom) box.scrollTop = box.scrollHeight;
+  }catch(e){
+    $("logbox").textContent = "读不到日志（服务没启动？）";
   }
-}, 300);
+}
+$("logpause").onclick = function () {
+  followLog = !followLog;
+  $("logpause").classList.toggle("on", followLog);
+  $("logpause").textContent = followLog ? "实时跟随" : "已暂停";
+};
+$("logrefresh").onclick = function () { loadLog(); };
+$("logcopy").onclick = function () {
+  const t = $("logbox").textContent || "";
+  try{ if (B && B.copyText){ B.copyText(t); return; } }catch(e){}
+  if (navigator.clipboard) navigator.clipboard.writeText(t);
+};
+
+async function loadTasks(){
+  try{
+    const d = await api("/api/tasks");
+    const ts = d.tasks || [];
+    if (!ts.length){
+      $("tasklist").innerHTML = '<div class="row"><span>还没有任务</span><span>—</span></div>';
+      return;
+    }
+    $("tasklist").innerHTML = ts.map(function (t) {
+      const id = t.id || t.name || "";
+      const when = t.cron || t.when || t.at || "";
+      return '<div class="task"><div class="t">' + (t.name || id) +
+        '<small>' + (when || "手动") + (t.enabled === false ? " · 已停用" : "") + '</small></div>' +
+        '<button data-id="' + id + '">执行</button></div>';
+    }).join("");
+    $("tasklist").querySelectorAll("button").forEach(function (b) {
+      b.onclick = async function () {
+        b.disabled = true; b.textContent = "执行中…";
+        try{
+          await api("/api/task_run", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({id: b.dataset.id})
+          });
+          b.textContent = "已执行";
+        }catch(e){
+          b.textContent = "失败";
+        }
+      };
+    });
+  }catch(e){
+    $("tasklist").innerHTML = '<div class="row"><span>读不到任务</span><span>服务没启动</span></div>';
+  }
+}
+
+async function loadSettings(){
+  try{
+    const p = await api("/api/persona");
+    $("persona").placeholder = p.default || "留空则用默认人设";
+    $("persona").value = p.persona || "";
+  }catch(e){
+    $("persona").value = "";
+  }
+  try{
+    const c = await api("/api/config");
+    $("st-cfg").innerHTML =
+      rowHtml("模型", c.model || "—") +
+      rowHtml("Key", c.key_set ? (c.key_hint || "已配置") : "没配", c.key_set ? "ok" : "bad") +
+      rowHtml("地址", c.base_url || "默认") +
+      rowHtml("步数上限", String(c.max_steps || "—")) +
+      rowHtml("Token 上限", String(c.max_tokens || "—"));
+  }catch(e){
+    $("st-cfg").innerHTML = rowHtml("接入", "读不到", "bad");
+  }
+}
+$("psave").onclick = async function () {
+  const btn = $("psave");
+  btn.disabled = true;
+  try{
+    await fetch(API + "/api/persona", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({persona: $("persona").value})
+    });
+    btn.textContent = "已保存";
+  }catch(e){
+    btn.textContent = "保存失败";
+  }
+  setTimeout(function () { btn.textContent = "保存人设"; btn.disabled = false; }, 1500);
+};
+
+$("qrbtn").onclick = function () {
+  $("qrimg").src = API + "/api/qr.png?t=" + Date.now();
+  $("sheet").classList.add("on");
+};
+$("sheetclose").onclick = function () { $("sheet").classList.remove("on"); };
+$("sheet").onclick = function (e) { if (e.target.id === "sheet") $("sheet").classList.remove("on"); };
+$("back").onclick = function () { try{ if (B && B.reload) B.reload(); }catch(e){} };
+
+refreshHead();
+setInterval(refreshHead, 6000);
+setTimeout(function () {
+  if (!list.children.length){
+    addMsg("我是 Botagent。可以让我查电量、开 App、搜东西、定提醒。\n下面四个页签能看状态、日志、任务和设置。");
+  }
+}, 250);
+show("chat");
 </script>
 </body>
 </html>
