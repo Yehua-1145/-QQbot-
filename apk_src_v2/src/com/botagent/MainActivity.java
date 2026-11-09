@@ -57,6 +57,12 @@ public class MainActivity extends Activity {
             s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         } catch (Throwable ignored) {
         }
+        // file:// 页面要能 fetch 127.0.0.1:8080 上的本地接口，否则控制台全是"读不到"
+        try {
+            s.setAllowUniversalAccessFromFileURLs(true);
+            s.setAllowFileAccessFromFileURLs(true);
+        } catch (Throwable ignored) {
+        }
 
         web.setBackgroundColor(0xFF0D1117);
         web.setWebViewClient(new PageClient(this));
@@ -643,6 +649,11 @@ class Bridge {
             cm.setPrimaryClip(android.content.ClipData.newPlainText("botagent", text));
         } catch (Exception ignored) {
         }
+    }
+
+    @JavascriptInterface
+    public void openSetup() {
+        act.runOnUiThread(new SetupOpener(act));
     }
 
     @JavascriptInterface
@@ -1638,5 +1649,20 @@ class NavToggle implements Runnable {
         if (act.navBar != null) {
             act.navBar.setVisibility(on ? android.view.View.VISIBLE : android.view.View.GONE);
         }
+    }
+}
+
+/** 从控制台回到向导页。 */
+class SetupOpener implements Runnable {
+
+    private final MainActivity act;
+
+    SetupOpener(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void run() {
+        act.backToSetup();
     }
 }

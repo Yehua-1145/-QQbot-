@@ -468,7 +468,12 @@ $("qrbtn").onclick = function () {
 };
 $("sheetclose").onclick = function () { $("sheet").classList.remove("on"); };
 $("sheet").onclick = function (e) { if (e.target.id === "sheet") $("sheet").classList.remove("on"); };
-$("back").onclick = function () { try{ if (B && B.reload) B.reload(); }catch(e){} };
+$("back").onclick = function () {
+  try{
+    if (B && B.openSetup){ B.openSetup(); return; }
+    if (B && B.reload) B.reload();
+  }catch(e){}
+};
 
 refreshHead();
 setInterval(refreshHead, 6000);
