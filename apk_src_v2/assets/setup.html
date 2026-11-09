@@ -172,7 +172,7 @@ button.green{background:linear-gradient(135deg,#3ddc97,#12a67d);color:#042420}
     <button class="green" id="start">启动机器人</button>
     <button class="ghost" id="open">进入控制台</button>
     <button class="ghost" id="stop" style="display:none">停止</button>
-    <div class="hint" id="starthint"></div>
+    <div class="hint" id="starthint">扫码登录成功后会自动进入控制台。</div>
     <pre id="rtlog"></pre>
     <div id="protobox" style="display:none;margin-top:14px">
       <label>协议端地址（默认 ws://127.0.0.1:3001）</label>
@@ -207,6 +207,9 @@ button.green{background:linear-gradient(135deg,#3ddc97,#12a67d);color:#042420}
 
 <script>
 const B = (typeof Android !== "undefined") ? Android : null;
+// 登录成功后自动进控制台（每次启动只自动跳一次，手动返回后不再打断）
+let autoEntered = false;
+try { autoEntered = sessionStorage.getItem("autoEntered") === "1"; } catch (e) {}
 let step = 1;
 let RUN_PORT = 8080;
 try { if (B && B.runPort) RUN_PORT = B.runPort() || 8080; } catch (e) {}
@@ -298,11 +301,21 @@ function probeEnv(){
   return ok;
 }
 
+function maybeAutoEnter(d){
+  if (autoEntered) return;
+  if (!d || d.online !== true) return;
+  autoEntered = true;
+  try { sessionStorage.setItem("autoEntered", "1"); } catch (e) {}
+  toast("登录成功，正在进入控制台…");
+  setTimeout(function () { try { if (B && B.openConsole) B.openConsole(); } catch (e) {} }, 900);
+}
+
 async function refreshAll(){
   await probeConfig();
   probeA11y();
   probeEnv();
   const d = await probeWeb();
+  maybeAutoEnter(d);
   $("sub").textContent = d ? (d.online ? "运行中，QQ 已登录" : "运行中，等待扫码") : "本地服务未启动";
 
   let ctnOn = false;
@@ -401,9 +414,15 @@ window.refreshAll = refreshAll;
   else if (!hasAcc) show(1);
   else if (!hasA11y) show(2);
   else show(3);
+
+  // 已经登录过的话，直接送进控制台（只自动跳一次）
+  try {
+    const d0 = await probeWeb();
+    if (d0 && d0.online === true) { maybeAutoEnter(d0); }
+  } catch (e) {}
   refreshAll();
   try { if (B && B.navStep) B.navStep(step, TOTAL); } catch (e) {}
-  setInterval(refreshAll, 6000);
+  setInterval(refreshAll, 3000);
 })();
 </script>
 </body>
