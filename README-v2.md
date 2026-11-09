@@ -14,7 +14,7 @@
 到 [Releases](https://github.com/Yehua-1145/-QQbot-/releases) 找 **v2.0.0-beta**，下载
 `Botagent-v2.0-beta.apk`（约 52 MB，内含运行时 + NapCat）。
 
-> `versionName 2.0.3` / `versionCode 105`　`SHA256 0DBC97FED082E420BB7A5E6ED19496C2BE601464709000D85F8880B505FBDD9E`
+> `versionName 2.0.7` / `versionCode 112`　`SHA256 967ED670F06D46CDD538114257C9244C4640E04D45F755E69871F831B1C23D67`
 
 > 小米/红米要先开：**设置 → 更多设置 → 开发者选项 → USB 安装**，
 > 否则可能提示「安装被拒绝」。装不上的话从手机浏览器直接点开 APK 也行。
