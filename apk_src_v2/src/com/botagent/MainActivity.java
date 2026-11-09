@@ -1437,8 +1437,15 @@ class NapCatInstaller implements Runnable {
             c.push(new java.io.File(e.dir(), "napcat-install.sh"), "napcat-install.sh", null);
             act.uiLog("NapCat：开始装运行环境");
             String out = c.run(new String[]{"/bin/sh", "/tmp/napcat-install.sh"}, 900, act);
-            boolean ok = out != null && out.contains("NAPCAT_OK");
-            act.uiLog(ok ? "NapCat：安装完成" : "NapCat：安装没成功，看上面日志");
+            // 判定不看日志文本（会被截断），直接查文件真的到位没有
+            String chk = c.run(new String[]{"/bin/sh", "-c",
+                    "test -d /opt/QQ/resources/app/napcat && "
+                    + "test -f /opt/QQ/resources/app/loadNapCat.cjs && "
+                    + "grep -q loadNapCat /opt/QQ/resources/app/package.json "
+                    + "&& echo NAP_INSTALLED || echo NAP_MISSING"}, 60, act);
+            boolean ok = chk != null && chk.contains("NAP_INSTALLED");
+            act.uiLog(ok ? "NapCat：安装完成，可以点「启动协议端」" 
+                         : "NapCat：没装好，看上面日志");
             act.uiRefresh();
         } catch (Throwable t) {
             act.uiLog("NapCat：出错 " + t);

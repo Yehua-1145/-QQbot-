@@ -113,7 +113,16 @@
   .sheet{position:fixed;inset:0;background:rgba(4,12,14,.86);z-index:30;display:none;
     align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:24px}
   .sheet.on{display:flex}
-  .sheet img{width:min(78vw,300px);background:#fff;border-radius:14px;padding:10px}
+  .sheet img#qrimg{width:250px;height:250px;background:#fff;border-radius:12px;
+    padding:8px;image-rendering:pixelated;display:block}
+  .sheet .qrtitle{color:var(--txt);font-size:13.5px;margin:0}
+  .sheet .qrph{display:none;width:250px;height:250px;background:rgba(255,255,255,.05);
+    border:1px dashed rgba(255,255,255,.18);border-radius:12px;color:var(--dim);
+    font-size:13.5px;line-height:1.7;align-items:center;justify-content:center;
+    text-align:center;flex-direction:column}
+  .sheet .qrph span{font-size:11.5px;color:#5f7c80}
+  .sheet .qrbtns{display:flex;gap:10px}
+  .sheet .qrbtns button{min-width:110px}
   .sheet p{color:var(--dim);font-size:13px;margin:0}
   .sheet button{border:1px solid var(--line);background:rgba(255,255,255,.06);
     color:var(--txt);border-radius:12px;padding:11px 22px;font-size:13.5px}
@@ -178,9 +187,14 @@
 </div>
 
 <div class="sheet" id="sheet">
-  <img id="qrimg" alt="二维码">
-  <p>用要当机器人的 QQ 扫这张码</p>
-  <button id="sheetclose">关闭</button>
+  <p class="qrtitle">拿要当机器人的那个 QQ 扫码</p>
+  <img id="qrimg" alt="QR">
+  <div id="qrph" class="qrph">还没出码<br><span>NapCat 起来后会自动出现</span></div>
+  <p id="qrstat">加载中…</p>
+  <div class="qrbtns">
+    <button id="qrrefresh">立即刷新</button>
+    <button id="sheetclose">关闭</button>
+  </div>
 </div>
 
 <script>
@@ -462,12 +476,63 @@ $("psave").onclick = async function () {
   setTimeout(function () { btn.textContent = "保存人设"; btn.disabled = false; }, 1500);
 };
 
-$("qrbtn").onclick = function () {
-  $("qrimg").src = API + "/api/qr.png?t=" + Date.now();
+let qrTimer = null, qrLast = "";
+
+async function qrTick(force){
+  try{
+    const r = await fetch(API + "/api/qr_url", {cache: "no-store"});
+    const j = await r.json();
+    const st = $("qrstat");
+    if (j.online){
+      st.textContent = "已登录，不用扫码了";
+      clearInterval(qrTimer);
+      return;
+    }
+    if (!j.url){
+      st.textContent = "等 NapCat 出码…";
+      return;
+    }
+    // 不管 url 有没有，都试一下图片；404 就显示占位而不是裂图
+    const src = API + "/api/qr.png?t=" + Date.now();
+    const probe = new Image();
+    probe.onload = function () {
+      $("qrimg").style.display = "block";
+      $("qrph").style.display = "none";
+      $("qrimg").src = src;
+      qrLast = j.url || String(Date.now());
+    };
+    probe.onerror = function () {
+      $("qrimg").style.display = "none";
+      $("qrph").style.display = "flex";
+    };
+    probe.src = src;
+    const age = j.age >= 0 ? j.age : 0;
+    st.textContent = age < 90 ? ("有效（" + age + " 秒前生成）")
+                              : ("可能过期（" + age + " 秒），点「立即刷新」");
+  }catch(e){
+    $("qrstat").textContent = "读不到二维码（服务没起？）";
+  }
+}
+
+function openQr(force){
   $("sheet").classList.add("on");
-};
-$("sheetclose").onclick = function () { $("sheet").classList.remove("on"); };
-$("sheet").onclick = function (e) { if (e.target.id === "sheet") $("sheet").classList.remove("on"); };
+  qrTick(force);
+  clearInterval(qrTimer);
+  qrTimer = setInterval(function () { qrTick(false); }, 4000);
+  // 让 NapCat 重新生成一张（v1.1 就是这么干的）
+  fetch(API + "/api/control?action=qr", {cache: "no-store"}).catch(function () {});
+}
+
+$("qrbtn").onclick = function () { openQr(false); };
+$("qrrefresh").onclick = function () { openQr(true); };
+
+function closeQr(){
+  $("sheet").classList.remove("on");
+  clearInterval(qrTimer);
+}
+$("sheetclose").onclick = closeQr;
+$("sheet").onclick = function (e) { if (e.target.id === "sheet") closeQr(); };
+
 $("back").onclick = function () {
   try{
     if (B && B.openSetup){ B.openSetup(); return; }

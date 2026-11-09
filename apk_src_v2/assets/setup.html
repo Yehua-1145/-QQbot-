@@ -150,6 +150,7 @@ button.green{background:linear-gradient(135deg,#3ddc97,#12a67d);color:#042420}
 
     <div class="hint" id="extinfo" style="margin-top:22px">QQ 包：检查中…</div>
     <button class="ghost" id="napinstall">② 安装 NapCat（内置）</button>
+    <button class="ghost" id="napstart" style="margin-top:10px">② 启动协议端（QQ + NapCat）</button>
     <button class="ghost" id="extpick" style="margin-top:10px">③ 导入 QQ 安装包（.deb）</button>
     <button class="ghost" id="extinstall">装进容器</button>
 
@@ -364,6 +365,12 @@ $("autostart").onclick = () => { try{ B.openAutoStart(); }catch(e){} };
 
 $("ctncreate").onclick = () => { $("rtlog").style.display = "block"; toast("开始建容器…"); try{ B.containerCreate(); }catch(e){ toast("调用失败"); } };
 $("napinstall").onclick = () => { $("rtlog").style.display = "block"; toast("安装 NapCat…"); try{ B.napcatInstall(); }catch(e){ toast("调用失败"); } };
+$("napstart").onclick = () => {
+  $("rtlog").style.display = "block";
+  $("rtlog").textContent = "";
+  toast("启动协议端…（首次要 30~60 秒）");
+  try{ B.napcatStart(); }catch(e){ toast("调用失败"); }
+};
 $("extpick").onclick = () => { try{ B.extPick(); }catch(e){ toast("打不开文件选择器"); } };
 $("extinstall").onclick = () => { $("rtlog").style.display = "block"; toast("装进容器…"); try{ B.extInstall(); }catch(e){ toast("调用失败"); } };
 $("ctnshow").onclick = () => {

@@ -210,6 +210,8 @@ QR_CANDIDATES = [
     _HOME_ROOT + "/ubuntu/tmp/qr.png",
     _HOME_ROOT + "/ubuntu/root/napcat/cache/qrcode.png",
     _HOME_ROOT + "/ubuntu/opt/napcat/cache/qrcode.png",
+    _HOME_ROOT + "/ubuntu/opt/QQ/resources/app/napcat/cache/qrcode.png",
+    _HOME_ROOT + "/ubuntu/root/napcat/cache/qrcode.png",
 ]
 QR_PATH = QR_CANDIDATES[0]
 
@@ -398,54 +400,96 @@ def _fast_status():
     return data
 
 
+
+# ---------- 二维码：用日志里的解码 URL 现生成一张清晰的大图（v1.1 的做法） ----------
+_LAST_QR_URL = [""]
+
+
+# NapCat 自己的日志（qq_bot.log 一直在写，不能混进来）
+NAP_LOGS = [
+    _HOME_ROOT + "/ubuntu/tmp/napcat.log",
+    _HOME_ROOT + "/ubuntu/tmp/nap.log",
+    _HOME_ROOT + "/qq-nap.log",
+]
+
+
+def _qr_log_file():
+    """挑一个存在且最新的 NapCat 日志。"""
+    import os as _os
+    best, best_m = None, 0
+    for p in NAP_LOGS:
+        try:
+            m = _os.path.getmtime(p)
+        except Exception:
+            continue
+        if m > best_m:
+            best, best_m = p, m
+    return best or NAP_LOGS[0]
+
+
+def _qr_gen(u, size=640):
+    """把 URL 变成一张 640 的正方形二维码，落到 tmp/qr.png（控制台优先读这张）。"""
+    import urllib.parse as _up
+    import os as _os
+    dst = _HOME_ROOT + "/ubuntu/tmp/qr.png"
+    try:
+        _os.makedirs(_HOME_ROOT + "/ubuntu/tmp", exist_ok=True)
+    except Exception:
+        pass
+    link = ("https://api.qrserver.com/v1/create-qr-code/?size=%dx%d&margin=12&data="
+            % (size, size)) + _up.quote(u, safe="")
+    _sh("curl -s -m 25 -o '%s' '%s'" % (dst, link))
+    ok = _sh("test -s '%s' && echo YES" % dst).endswith("YES")
+    return dst if ok else ""
+
+
+def _qr_sync():
+    """有新码就生成一张，返回 (url, age, online)。"""
+    import time as _t
+    online = _qr_online()
+    if online:
+        return "", -1, True
+    u = _newest_qr_url(240)
+    age = -1
+    try:
+        st = _qr_state()
+        age = int(_t.time() - st.get("mtime", 0)) if st.get("mtime") else -1
+    except Exception:
+        pass
+    if u and u != _LAST_QR_URL[0]:
+        if _qr_gen(u):
+            _LAST_QR_URL[0] = u
+            age = 0
+    return u, age, online
+
 def _newest_qr_url(max_age=180):
-    """从 NapCat 日志取最新二维码 URL；超过 max_age 秒的旧码直接算无效。"""
-    import re as _re
+    """取 NapCat 日志里最后一条二维码 URL。
+
+    新鲜度不看日志时间戳：容器里 NapCat 的日志是 UTC，宿主是本地时区，
+    直接比对会差 8 小时。改用 cache/qrcode.png 的 mtime 判断是否还新鲜。
+    """
+    import os as _os
     import time as _t
     try:
-        with open(NAP_LOG, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()[-800:]
+        stamp_age = None
+        try:
+            m = _os.path.getmtime(QR_CANDIDATES[-2])
+            stamp_age = int(_t.time() - m)
+        except Exception:
+            stamp_age = None
+        if max_age and stamp_age is not None and stamp_age > max_age:
+            return ""
+        with open(_qr_log_file(), "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()[-1500:]
         for i in range(len(lines) - 1, -1, -1):
             if "二维码解码URL" not in lines[i]:
                 continue
             u = lines[i].split("URL:", 1)[-1].strip()
-            if not u.startswith("https://"):
-                continue
-            # 往前找最近的带时间戳的行（NapCat 的 URL 行本身没有时间）
-            stamp = None
-            for j in range(i, max(-1, i - 6), -1):
-                m = _re.search(r"(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)", lines[j])
-                if m:
-                    import datetime as _dt
-                    now = _dt.datetime.now()
-                    try:
-                        t = now.replace(month=int(m.group(1)), day=int(m.group(2)),
-                                        hour=int(m.group(3)), minute=int(m.group(4)),
-                                        second=int(m.group(5)), microsecond=0)
-                    except Exception:
-                        t = now
-                    stamp = t
-                    break
-            if stamp is None:
-                return u          # 没时间戳就信它
-            age = (_dt.datetime.now() - stamp).total_seconds()
-            if age > max_age:
-                return ""         # 旧码，别给人扫
-            return u
+            if u.startswith("https://"):
+                return u
+        return ""
     except Exception:
-        pass
-    return ""
-
-
-# ---------- NapCat 自身状态（比看日志准确） ----------
-NAP_LOG = ("/data/data/com.astrbot.astrbot_android/files/usr/var/lib/proot-distro/"
-           "installed-rootfs/ubuntu/root/napcat_run.log")
-NAP_WEBUI_CFG = ("/data/data/com.astrbot.astrbot_android/files/usr/var/lib/proot-distro/"
-                 "installed-rootfs/ubuntu/root/napcat/config/webui.json")
-_nap_cache = {"ts": 0, "data": None}
-_nap_cred = {"token": None, "cred": None, "until": 0}
-
-
+        return ""
 def _napcat_token():
     """WebUI token：先读配置，再退回日志里那行 WebUi Token。"""
     try:
@@ -785,7 +829,7 @@ def _act(action, value=""):
             return "(mode error: %s)" % e
     if action == "qr":
         # 用日志里"最新"的解码 URL 现生成图片（qrcode.png 可能还是旧的）
-        dst = "/sdcard/Download/qq_qr.png"
+        dst = _HOME_ROOT + "/ubuntu/tmp/qr.png"
         if _qr_online():
             return "QQ 现在是登录状态，不需要二维码。"
         u = _newest_qr_url(180)
@@ -796,7 +840,7 @@ def _act(action, value=""):
             try:
                 import urllib.parse as _up
                 link = ("https://api.qrserver.com/v1/create-qr-code/"
-                        "?size=560x560&margin=8&data=" + _up.quote(u, safe=""))
+                        "?size=640x640&margin=12&data=" + _up.quote(u, safe=""))
                 _sh("curl -s -m 25 -o '%s' '%s' && chmod 666 '%s'" % (dst, link, dst))
                 if _sh("test -s '%s' && echo YES" % dst).endswith("YES"):
                     return "二维码已是最新（来自日志 URL）-> " + dst
@@ -1347,12 +1391,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/qr_url":
             _waited = _qr_wait_seconds()
             import json as _j
-            import time as _t
-            u = _newest_qr_url(600)
-            st = _qr_state()
-            age = int(_t.time() - st.get("mtime", 0)) if st.get("mtime") else -1
+            u, age, _online = _qr_sync()
             _gen = bool(_waited >= 0 and _waited < 150 and not u)
-            body = _j.dumps({"url": u, "age": age, "online": _qr_online(),
+            body = _j.dumps({"url": u, "age": age, "online": _online,
                              "generating": _gen, "waited": _waited},
                             ensure_ascii=False).encode()
             self.send_response(200)
