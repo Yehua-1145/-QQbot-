@@ -31,7 +31,7 @@ import java.io.OutputStreamWriter;
 public class MainActivity extends Activity {
 
     static final String SETUP_URL = "file:///android_asset/setup.html";
-    static final String CONSOLE_URL = "http://127.0.0.1:8080/app";
+    static final String CONSOLE_URL = "file:///android_asset/console.html";
 
     WebView web;
     android.widget.FrameLayout root;
@@ -169,8 +169,7 @@ public class MainActivity extends Activity {
 
     void reloadPage() {
         if (onConsole) {
-            int p = RuntimeManager.port > 0 ? RuntimeManager.port : 8080;
-            web.loadUrl("http://127.0.0.1:" + p + "/app");
+            web.loadUrl("file:///android_asset/console.html");
         } else {
             web.loadUrl(SETUP_URL);
         }

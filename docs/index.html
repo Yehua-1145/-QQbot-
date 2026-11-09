@@ -91,10 +91,37 @@
     <h1>手机直装 Botagent</h1>
     <div class="sub">不用电脑 · 不用 root · 一台闲置安卓机</div>
     <div class="badge" id="dev">检测中…</div>
+    <div class="sub" style="margin-top:10px">两条路：懒人版走上面「单 APK」，稳妥版走下面四步</div>
   </header>
 
   <div class="prog"><i id="bar"></i></div>
   <div class="sub" style="text-align:center;font-size:13px" id="progtxt">0 / 3 完成</div>
+
+  <!-- v2 单 APK 入口 -->
+  <div class="step" id="v2" style="border-color:#1f6feb;background:#0f1a26">
+    <div class="head">
+      <div class="num" style="border-color:#f0b429;color:#f0b429">✦</div>
+      <div class="title">懒人选项：单 APK 版（v2 实验版）</div>
+    </div>
+    <div class="desc">
+      不想装 Termux、不想开 USB 调试？有个版本把 <b>Python 运行时直接打进 APK</b>。<br>
+      装完只需要填 <b>QQ 号 + API Key</b>，点一下「启动」就能跑。
+    </div>
+    <a class="btn" style="background:#238636"
+       href="https://github.com/Yehua-1145/-QQbot-/releases/tag/v2.0.0-beta"
+       target="_blank" rel="noopener">
+      下载 Botagent-v2.0-beta.apk（52 MB，内置运行时 + NapCat）
+    </a>
+    <a class="btn ghost"
+       href="https://github.com/Yehua-1145/-QQbot-/blob/v2-embedded-runtime/README-v2.md"
+       target="_blank" rel="noopener">
+      看 v2 使用说明
+    </a>
+    <div class="note">
+      实验版。QQ 登录仍然需要 <b>AstrBot</b>（协议端，扫码那步没法省）；<br>
+      想要稳定、已验证的流程，就走下面四步。
+    </div>
+  </div>
 
   <!-- 1 -->
   <div class="step" id="s1">
