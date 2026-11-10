@@ -103,6 +103,21 @@ jobs:
           Copy-Item aibot/*.py apk_src_v2/aibot_assets/ -Force
           Get-ChildItem apk_src_v2/aibot_assets | Select-Object Name
 
+      - name: 还原签名 keystore（保证与历史版本同一签名，能覆盖升级）
+        shell: pwsh
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          $ks = "apk_src_v2/debug.keystore"
+          if (-not $env:KEYSTORE_B64) {
+            Write-Host "::warning::没有配置 KEYSTORE_B64，本次会用临时生成的密钥签名（不能覆盖升级旧版本）"
+            exit 0
+          }
+          $bytes = [Convert]::FromBase64String($env:KEYSTORE_B64)
+          [IO.File]::WriteAllBytes((Join-Path $PWD $ks), $bytes)
+          Write-Host "keystore 已还原: $ks ($($bytes.Length) 字节)"
+          if (-not (Test-Path $ks)) { throw "keystore 写入失败" }
+
       - name: 构建 APK
         shell: pwsh
         run: |
