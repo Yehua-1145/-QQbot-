@@ -114,6 +114,18 @@
     transition:color .18s}
   .tab.on{color:var(--cyan);font-weight:600}
 
+  /* 功能介绍弹窗：卡片多了要能滚，按钮固定在底部 */
+  #feat{justify-content:flex-start;padding:0;background:rgba(4,12,14,.97)}
+  #feat .featinner{width:100%;max-height:100%;display:flex;flex-direction:column;
+    padding:18px 16px 14px;gap:10px;box-sizing:border-box}
+  #feat .featscroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    display:flex;flex-direction:column;gap:8px;padding-right:2px}
+  .featlist{display:flex;flex-direction:column;gap:8px}
+  .fk{display:flex;flex-direction:column;gap:2px;padding:9px 12px;
+    border-radius:11px;background:var(--card2);border:1px solid var(--line)}
+  .fk b{font-size:13.5px;font-weight:600;color:var(--fg)}
+  .fk span{font-size:12px;color:var(--dim);line-height:1.45}
+  #feat .green{flex:0 0 auto}
   .sheet{position:fixed;inset:0;background:rgba(4,12,14,.86);z-index:30;display:none;
     align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:24px}
   .sheet.on{display:flex}
@@ -219,7 +231,8 @@
       <div class="card">
         <h3>关于</h3>
         <div class="row"><span>版本</span><span id="s-ver" class="v">—</span></div>
-        <button class="ghost" id="btn-restart-nap">重启协议端（NapCat）</button>
+        <button class="ghost" id="btn-feat">它能做什么（功能介绍）</button>
+        <button class="ghost" id="btn-restart-nap" style="margin-top:8px">重启协议端（NapCat）</button>
       </div>
     </div>
   </main>
@@ -236,6 +249,26 @@
     <div class="tab" data-v="tasks">任务</div>
     <div class="tab" data-v="settings">设置</div>
   </div>
+</div>
+
+<div class="sheet" id="feat">
+ <div class="featinner">
+  <p class="qrtitle">它能做什么</p>
+  <div class="featscroll">
+  <div class="featlist">
+    <div class="fk"><b>📱 真的操作手机</b><span>读屏幕、点按钮、滑动、打字、长按、找元素</span></div>
+    <div class="fk"><b>🔍 看得见界面</b><span>把当前页面的文字和控件读出来，再决定点哪</span></div>
+    <div class="fk"><b>📋 剪贴板与通知</b><span>读写剪贴板、读通知栏消息</span></div>
+    <div class="fk"><b>📸 截图</b><span>Android 11+ 可直接截图（老系统会提示不支持）</span></div>
+    <div class="fk"><b>🚀 开关 App</b><span>按名字启动、列出已装应用</span></div>
+    <div class="fk"><b>⏰ 定时任务</b><span>「每天 8 点提醒我带伞」这种话直接说就行</span></div>
+    <div class="fk"><b>💬 能接入 QQ</b><span>私聊或被 @ 时回复；可设白名单和群</span></div>
+    <div class="fk"><b>🔒 全在本机</b><span>聊天只发给你自己填的模型服务商，不经过我们</span></div>
+  </div>
+  <div class="hint" style="margin-top:2px">在下面输入框直接说人话就行，比如「帮我看看现在电量多少」。</div>
+  </div>
+  <button class="green" id="feat-ok">知道了</button>
+ </div>
 </div>
 
 <div class="sheet" id="sheet">
@@ -499,6 +532,20 @@ async function apiPost(path, obj){
     body: JSON.stringify(obj)
   });
 }
+
+function showFeat(){
+  $("feat").classList.add("on");
+}
+$("feat-ok").onclick = function(){
+  $("feat").classList.remove("on");
+  try{ localStorage.setItem("featSeen", "1"); }catch(e){}
+};
+$("btn-feat").onclick = showFeat;
+try{
+  if(!localStorage.getItem("featSeen")){
+    setTimeout(showFeat, 900);
+  }
+}catch(e){}
 
 function act(action){
   return fetch(API + "/api/control?action=" + encodeURIComponent(action),
