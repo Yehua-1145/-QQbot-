@@ -4,10 +4,9 @@ name: build-apk
 #
 # 说明：
 #   APK 需要两坨二进制资源，它们不进 git（体积大）：
-#     · apk_src_v2/assets/runtime.zip          Python 运行时（约 16.6 MB）
+#     · apk_src_v2/assets/runtime.zip               Python 运行时（约 16.6 MB）
 #     · apk_src_v2/napcat_assets/NapCat.Shell.zip   NapCat 官方包（约 34 MB）
-#   所以本流程会先去「最新 Release 的资产」里下载这两个文件；
-#   下载不到就直接失败并提示怎么补。
+#   本流程从「最新 Release 的资产」下载这两个文件；下载不到就直接失败并提示。
 
 on:
   push:
@@ -33,13 +32,24 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: 装 Android build-tools 34 + platform 34
-        uses: android-actions/setup-android@v3
-
-      - name: 补 build-tools / platform
+      - name: 装 Android SDK（cmdline-tools + platform 34 + build-tools 34）
         shell: pwsh
         run: |
-          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          $sdk = Join-Path $env:RUNNER_TEMP "android-sdk"
+          New-Item -ItemType Directory -Force $sdk | Out-Null
+          $zip = Join-Path $env:RUNNER_TEMP "clt.zip"
+          Invoke-WebRequest -Uri "https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip" -OutFile $zip
+          Expand-Archive $zip -DestinationPath (Join-Path $env:RUNNER_TEMP "clt") -Force
+          $bin = Join-Path $sdk "cmdline-tools\latest"
+          New-Item -ItemType Directory -Force $bin | Out-Null
+          Copy-Item (Join-Path $env:RUNNER_TEMP "clt\cmdline-tools\*") $bin -Recurse -Force
+          $sdm = Join-Path $bin "bin\sdkmanager.bat"
+          Write-Host "sdkmanager: $sdm"
+          cmd /c "echo y| `"$sdm`" --sdk_root=`"$sdk`" --licenses" | Out-Null
+          cmd /c "`"$sdm`" --sdk_root=`"$sdk`" `"platforms;android-34`" `"build-tools;34.0.0`""
+          "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ANDROID_HOME=$sdk"     | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Get-ChildItem "$sdk\build-tools" | Select-Object Name
 
       - name: 下载二进制资源（runtime.zip / NapCat.Shell.zip）
         shell: pwsh
@@ -48,32 +58,39 @@ jobs:
         run: |
           $rel = gh api repos/${{ github.repository }}/releases/latest | ConvertFrom-Json
           $want = @{
-            "runtime.zip"        = "apk_src_v2/assets/runtime.zip"
-            "NapCat.Shell.zip"   = "apk_src_v2/napcat_assets/NapCat.Shell.zip"
+            "runtime.zip"      = "apk_src_v2/assets/runtime.zip"
+            "NapCat.Shell.zip" = "apk_src_v2/napcat_assets/NapCat.Shell.zip"
           }
           $have = 0
           foreach ($a in $rel.assets) {
             if ($want.ContainsKey($a.name)) {
               $dst = $want[$a.name]
               New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
-              Write-Host "下载 $($a.name) -> $dst"
-              gh release download $rel.tag_name --repo ${{ github.repository }} `
-                 --pattern $a.name --output $dst --clobber
+              gh release download $rel.tag_name --repo ${{ github.repository }} --pattern $a.name --output $dst --clobber
+              Write-Host "已下载 $($a.name) -> $dst ($([math]::Round((Get-Item $dst).Length/1MB,1)) MB)"
               $have++
             }
           }
           if ($have -lt 2) {
-            Write-Host "::error::最新 Release 里缺少 runtime.zip 或 NapCat.Shell.zip。"
-            Write-Host "把这些文件作为 Release 资产上传一次，后续构建就能自动跑。"
+            Write-Host "::error::最新 Release 缺少 runtime.zip 或 NapCat.Shell.zip，无法构建"
             exit 1
           }
 
+      - name: 注入机器人代码
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force apk_src_v2/aibot_assets | Out-Null
+          Copy-Item aibot/*.py apk_src_v2/aibot_assets/ -Force
+          Get-ChildItem apk_src_v2/aibot_assets | Select-Object Name
+
       - name: 构建 APK
         shell: pwsh
-        env:
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Out .\Botagent-ci.apk
+          Push-Location apk_src_v2
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Out "$env:GITHUB_WORKSPACE\Botagent-ci.apk"
+          Pop-Location
+          if (-not (Test-Path "$env:GITHUB_WORKSPACE\Botagent-ci.apk")) { throw "没有产出 APK" }
+          Get-Item "$env:GITHUB_WORKSPACE\Botagent-ci.apk" | Select-Object Name, Length
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
@@ -88,5 +105,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ github.ref_name }} .\Botagent-ci.apk `
-             --repo ${{ github.repository }} --clobber
+          gh release upload ${{ github.ref_name }} .\Botagent-ci.apk --repo ${{ github.repository }} --clobber
