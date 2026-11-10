@@ -131,6 +131,36 @@ def _load_perms():
         return d
 
 
+def _claim_owner(uid):
+    """还没设过真正的主人时，第一个私聊的人接管（只写 owner_uid 和白名单）。
+
+    背景：出厂配置里 owner_uid 是个占位数字（10001），
+    不接管的话真人私聊全部被白名单静默丢弃 —— 用户只会看到"没回消息"。
+    """
+    global OWNER_UID, ALLOWED_PRIVATE_UIDS
+    try:
+        cfg = _json.load(open(_HOME_ROOT + "/aibot/config.json", encoding="utf-8"))
+    except Exception:
+        return False
+    cfg["owner_uid"] = int(uid)
+    uids = [int(x) for x in (cfg.get("allowed_private_uids") or []) if int(x) >= 100000]
+    if int(uid) not in uids:
+        uids.append(int(uid))
+    cfg["allowed_private_uids"] = uids
+    try:
+        tmp = _HOME_ROOT + "/aibot/config.json.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            _json.dump(cfg, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, _HOME_ROOT + "/aibot/config.json")
+    except Exception as e:
+        log("claim owner: 写配置失败 %s" % e)
+        return False
+    OWNER_UID = int(uid)
+    ALLOWED_PRIVATE_UIDS = set(uids)
+    log("claimed owner: %s（自动接管，之后只有白名单能私聊）" % uid)
+    return True
+
+
 def _save_perms(d):
     import json as _json
     try:
@@ -1443,7 +1473,17 @@ def on_message(ws, message):
     if mtype == "private":
         # 私聊白名单（主人 + 授权用户 + 运行时授权）
         if uid not in ALLOWED_PRIVATE_UIDS and uid not in _adult_uids():
-            return
+            # 出厂占位主人（<100000）时，第一个真人私聊自动接管
+            if (OWNER_UID or 0) < 100000 and uid and int(uid) >= 100000:
+                if _claim_owner(uid):
+                    _reply(ws, mtype, uid, None,
+                           "已把你设为主人（原配置里没有真人账号）。"
+                           "以后只有你的私聊会得到回复。")
+                else:
+                    return
+            else:
+                log("drop private from %s (not in whitelist; add to allowed_private_uids)" % uid)
+                return
     elif mtype == "group":
         # only whitelisted groups, and only when the bot is @mentioned
         if gid not in ALLOWED_GROUPS:
