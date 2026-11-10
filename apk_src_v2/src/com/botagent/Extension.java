@@ -104,6 +104,7 @@ public class Extension {
         write("status.sh", QQ_STATUS);
         write("napcat-install.sh", NAPCAT_INSTALL);
         write("napcat-start.sh", NAPCAT_START);
+        write("napcat-onebot-fix.sh", NAPCAT_ONEBOT_FIX);
         if (!manifest().exists()) {
             write("ext.json", QQ_MANIFEST);
         }
@@ -200,7 +201,28 @@ public class Extension {
             + "grep -o '\"main\"[^,]*' $QAPP/package.json | head -1\n"
             + "echo NAPCAT_O\n";
 
-        static final String NAPCAT_START = "set -e\n"
+    
+    /** NapCat 登录后才生成 onebot11 配置，默认 websocketServers 为空；
+     *  后台轮询补上 ws:3001（最多 15 分钟），否则用户装完永远连不上。 */
+    static final String NAPCAT_ONEBOT_FIX = "set +e\n"
+            + "set +e\n"
+            + "CFG_DIR=/opt/QQ/resources/app/napcat/config\n"
+            + "LOG=/tmp/onebot-fix.log\n"
+            + "echo '[fix] wait for onebot11 config' >> $LOG\n"
+            + "for i in $(seq 1 180); do\n"
+            + "  cfg=$(ls $CFG_DIR/onebot11_*.json 2>/dev/null | head -1)\n"
+            + "  if [ -n \"$cfg\" ]; then\n"
+            + "    if grep -q '\"port\": *3001' \"$cfg\" 2>/dev/null; then\n"
+            + "      echo '[fix] already has 3001' >> $LOG; exit 0\n"
+            + "    fi\n"
+            + "    printf '%s' '{\"network\":{\"httpServers\":[],\"httpSseServers\":[],\"httpClients\":[],\"websocketServers\":[{\"name\":\"ws\",\"enable\":true,\"host\":\"127.0.0.1\",\"port\":3001,\"messagePostFormat\":\"array\",\"reportSelfMessage\":false,\"token\":\"\",\"enableForcePushEvent\":true,\"debug\":false,\"heartInterval\":30000}],\"websocketClients\":[],\"plugins\":[]},\"musicSignUrl\":\"\",\"enableLocalFile2Url\":false,\"parseMultMsg\":false}' > /tmp/ob.json\n"
+            + "    if [ -s /tmp/ob.json ]; then cp -f /tmp/ob.json \"$cfg\"; echo \"[fix] wrote ws:3001 to $cfg\" >> $LOG; exit 0; fi\n"
+            + "  fi\n"
+            + "  sleep 5\n"
+            + "done\n"
+            + "echo '[fix] timeout' >> $LOG\n";
+
+    static final String NAPCAT_START = "set -e\n"
             + "export DISPLAY=:99\n"
             + "QAPP=/opt/QQ/resources/app\n"
             + "test -d $QAPP/napcat || { echo 'NAPCAT_NOT_INSTALLED 先点安装 NapCat'; exit 1; }\n"
@@ -209,6 +231,7 @@ public class Extension {
             + "pgrep -f '/opt/QQ/qq' >/dev/null && { echo 'QQ 已在跑'; exit 0; }\n"
             + "cd /opt/QQ\n"
             + "nohup ./qq --no-sandbox > /tmp/napcat.log 2>&1 &\n"
+            + "nohup sh /tmp/napcat-onebot-fix.sh >/tmp/onebot-fix.log 2>&1 &\n"
             + "echo '== 等二维码（最多 60 秒）=='\n"
             + "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do\n"
             + "  sleep 5\n"

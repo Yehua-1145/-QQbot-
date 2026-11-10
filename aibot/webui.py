@@ -427,40 +427,117 @@ def _qr_log_file():
     return best or NAP_LOGS[0]
 
 
-def _qr_gen(u, size=640):
-    """把 URL 变成一张 640 的正方形二维码，落到 tmp/qr.png（控制台优先读这张）。"""
-    import urllib.parse as _up
-    import os as _os
-    dst = _HOME_ROOT + "/ubuntu/tmp/qr.png"
+def _png_upscale(data, factor=4):
+    """把 1/2/4/8 位灰度 PNG 按整数倍最近邻放大，返回新 PNG 字节。
+
+    只处理灰度（color type 0），NapCat 出的二维码就是 1 位灰度。
+    失败时返回 None，让调用方回退到原图。
+    """
+    import struct as _st
+    import zlib as _zl
     try:
-        _os.makedirs(_HOME_ROOT + "/ubuntu/tmp", exist_ok=True)
+        if data[:8] != b"\x89PNG\r\n\x1a\n":
+            return None
+        pos = 8
+        w = h = depth = ctype = None
+        idat = b""
+        while pos < len(data):
+            ln = _st.unpack(">I", data[pos:pos + 4])[0]
+            typ = data[pos + 4:pos + 8]
+            body = data[pos + 8:pos + 8 + ln]
+            pos += 12 + ln
+            if typ == b"IHDR":
+                w, h, depth, ctype = _st.unpack(">IIBB", body[:10])
+            elif typ == b"IDAT":
+                idat += body
+            elif typ == b"IEND":
+                break
+        if ctype != 0 or depth not in (1, 2, 4, 8):
+            return None
+        raw = _zl.decompress(idat)
+        stride = (w * depth + 7) // 8
+        bpp = 1 if depth == 8 else 1
+        prev = bytearray(stride)
+        rows = []
+        p = 0
+        for _y in range(h):
+            f = raw[p]
+            p += 1
+            line = bytearray(raw[p:p + stride])
+            p += stride
+            if f == 1:      # Sub
+                for x in range(bpp, stride):
+                    line[x] = (line[x] + line[x - bpp]) & 0xFF
+            elif f == 2:    # Up
+                for x in range(stride):
+                    line[x] = (line[x] + prev[x]) & 0xFF
+            elif f == 3:    # Average
+                for x in range(stride):
+                    a = line[x - bpp] if x >= bpp else 0
+                    line[x] = (line[x] + ((a + prev[x]) >> 1)) & 0xFF
+            elif f == 4:    # Paeth
+                for x in range(stride):
+                    a = line[x - bpp] if x >= bpp else 0
+                    b = prev[x]
+                    c = prev[x - bpp] if x >= bpp else 0
+                    pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                    pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                    line[x] = (line[x] + pr) & 0xFF
+            rows.append(bytes(line))
+            prev = line
+        # 展开成 8 位灰度
+        scale = 255 // ((1 << depth) - 1)
+        gray = []
+        for line in rows:
+            vals = []
+            for y in range(w):
+                if depth == 8:
+                    v = line[y]
+                else:
+                    bit = y * depth
+                    byte = line[bit // 8]
+                    shift = 8 - depth - (bit % 8)
+                    v = (byte >> shift) & ((1 << depth) - 1)
+                    v *= scale
+                vals.append(v)
+            gray.append(vals)
+        # 最近邻放大
+        out_w, out_h = w * factor, h * factor
+        out_rows = []
+        for y in range(out_h):
+            src = gray[y // factor]
+            row = bytearray()
+            for x in range(out_w):
+                row.append(src[x // factor])
+            out_rows.append(b"\x00" + bytes(row))
+        comp = _zl.compress(b"".join(out_rows), 9)
+
+        def chunk(typ, body):
+            return (_st.pack(">I", len(body)) + typ + body +
+                    _st.pack(">I", _zl.crc32(typ + body) & 0xFFFFFFFF))
+
+        ihdr = _st.pack(">IIBBBBB", out_w, out_h, 8, 0, 0, 0, 0)
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) +
+                chunk(b"IDAT", comp) + chunk(b"IEND", b""))
     except Exception:
-        pass
-    link = ("https://api.qrserver.com/v1/create-qr-code/?size=%dx%d&margin=12&data="
-            % (size, size)) + _up.quote(u, safe="")
-    _sh("curl -s -m 25 -o '%s' '%s'" % (dst, link))
-    ok = _sh("test -s '%s' && echo YES" % dst).endswith("YES")
-    return dst if ok else ""
+        return None
 
 
 def _qr_sync():
-    """有新码就生成一张，返回 (url, age, online)。"""
+    """返回 (url, age, online)；图由 /api/qr.png 本地放大，不依赖任何外部服务。"""
     import time as _t
     online = _qr_online()
     if online:
         return "", -1, True
-    u = _newest_qr_url(240)
+    u = _newest_qr_url(600)
     age = -1
     try:
         st = _qr_state()
         age = int(_t.time() - st.get("mtime", 0)) if st.get("mtime") else -1
     except Exception:
         pass
-    if u and u != _LAST_QR_URL[0]:
-        if _qr_gen(u):
-            _LAST_QR_URL[0] = u
-            age = 0
     return u, age, online
+
 
 def _newest_qr_url(max_age=180):
     """取 NapCat 日志里最后一条二维码 URL。
@@ -1405,78 +1482,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == "/api/qr.png":
-            if not self._authorized():
-                self.send_response(401)
-                self.end_headers()
-                return
-            # 已经登录成功就不给码了（旧码没用还可能误导）
+            # 本机直接读 NapCat 缓存，1 位灰度 PNG 放大 4 倍再返回（无需外部服务）
+            import os as _os
+            p = _qr_path()
             try:
-                import json as _j
-                st = _j.load(open(_HOME_ROOT + "/aibot/qq_state.json", encoding="utf-8"))
-                if st.get("online") is True:
-                    msg = b"already logged in"
-                    self.send_response(404)
-                    self.send_header("Content-Type", "text/plain; charset=utf-8")
-                    self.send_header("Content-Length", str(len(msg)))
-                    self.end_headers()
-                    self.wfile.write(msg)
-                    return
+                raw = open(p, "rb").read()
             except Exception:
-                pass
-            # NapCat 每次换码只更新日志里的 URL，qrcode.png 可能还是旧的，
-            # 所以这里先取"最新 URL"，用外部服务渲染（比旧图可靠）
-            # 优先用 NapCat 本地生成的 qrcode.png（新鲜就直发，完全不依赖外网）
-            try:
-                import os as _os
-                import time as _t
-                _age = _t.time() - _os.path.getmtime(_qr_path())
-                if _age < 150:
-                    with open(_qr_path(), "rb") as f:
-                        _png = f.read()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "image/png")
-                    self.send_header("Cache-Control", "no-store")
-                    self.send_header("Content-Length", str(len(_png)))
-                    self.end_headers()
-                    self.wfile.write(_png)
-                    return
-            except Exception:
-                pass
-            _newest = _newest_qr_url()
-            if _newest:
-                import urllib.parse as _up
-                target = ("https://api.qrserver.com/v1/create-qr-code/"
-                          "?size=560x560&margin=8&data=" + _up.quote(_newest, safe=""))
-                self.send_response(302)
-                self.send_header("Location", target)
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                return
-            try:
-                with open(_qr_path(), "rb") as f:
-                    data = f.read()
-                self.send_response(200)
-                self.send_header("Content-Type", "image/png")
-                self.send_header("Content-Length", str(len(data)))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                self.wfile.write(data)
-            except Exception:
-                msg = b"no qrcode yet (napcat not started / already logged in)"
+                raw = b""
+            if not raw:
                 self.send_response(404)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
-                self.send_header("Content-Length", str(len(msg)))
+                body = "还没有二维码".encode("utf-8")
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(msg)
-            return
-        if path == "/api/config":
-            import json as _j
-            cfg = _cfg_read()
-            self._json({"base_url": cfg.get("base_url", ""), "model": cfg.get("model", ""),
-                        "key_set": bool(cfg.get("api_key")),
-                        "key_hint": _mask(cfg.get("api_key", "")),
-                        "max_steps": cfg.get("max_steps", ""),
-                        "max_tokens": cfg.get("max_tokens", "")})
+                self.wfile.write(body)
+                return
+            big = _png_upscale(raw, 4) or raw
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(big)))
+            self.end_headers()
+            self.wfile.write(big)
             return
 
         if path == "/api/version":
@@ -3700,8 +3727,9 @@ if __name__ == "__main__":
         raise
     except Exception:
         pass
-    print("PhoneAgent WebUI on 0.0.0.0:%d  token=%s  (streaming)" % (PORT, TOKEN), flush=True)
+    print("PhoneAgent WebUI on 127.0.0.1:%d  token=%s  (streaming)" % (PORT, TOKEN), flush=True)
     print("panel: http://127.0.0.1:%d/panel" % PORT, flush=True)
-    srv = ThreadedHTTPServer(("0.0.0.0", PORT), Handler)
+    # 安全：只监听回环。控制台能下指令、能看屏幕，不能暴露到局域网。
+    srv = ThreadedHTTPServer(("127.0.0.1", PORT), Handler)
     srv.daemon_threads = True
     srv.serve_forever()

@@ -156,6 +156,56 @@ public class MainActivity extends Activity {
     }
 
     // ---------- 页面切换 ----------
+    /** 一键启动：协议端（QQ+NapCat）→ 机器人，中间等端口就绪。 */
+    void startAll() {
+        new Thread(new StartAllTask(this)).start();
+    }
+
+    /** 自检：返回 JSON 数组字符串，前端直接渲染。 */
+    String selfCheckJson() {
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+
+        Object[][] items = new Object[][]{
+                {"容器", container().ready(), "点第 3 步「创建容器」"},
+                {"运行时", runtimeReady(), "点第 4 步「启动机器人」"},
+                {"无障碍", portOpen(8081, 300), "第 2 步打开无障碍"},
+                {"协议端 6099", portOpen(6099, 400), "第 3 步点「启动协议端」"},
+                {"OneBot 3001", portOpen(3001, 400), "协议端登录后自动开；没开就看 docs/onebot-port.md"},
+                {"控制台 8080", portOpen(RuntimeManager.port > 0 ? RuntimeManager.port : 8080, 400),
+                        "点第 4 步「启动机器人」"},
+        };
+        for (Object[] it : items) {
+            boolean ok = Boolean.TRUE.equals(it[1]);
+            if (!first) {
+                sb.append(',');
+            }
+            first = false;
+            sb.append("{\"name\":\"").append(it[0]).append("\",\"ok\":").append(ok)
+              .append(",\"hint\":\"").append(ok ? "" : it[2]).append("\"}");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    static boolean portOpen(int port, int timeoutMs) {
+        java.net.Socket sk = null;
+        try {
+            sk = new java.net.Socket();
+            sk.connect(new java.net.InetSocketAddress("127.0.0.1", port), timeoutMs);
+            return true;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            try {
+                if (sk != null) {
+                    sk.close();
+                }
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     void showNav(final boolean on) {
         runOnUiThread(new NavToggle(this, on));
     }
@@ -654,6 +704,16 @@ class Bridge {
     @JavascriptInterface
     public void openSetup() {
         act.runOnUiThread(new SetupOpener(act));
+    }
+
+    @JavascriptInterface
+    public void startAll() {
+        act.startAll();
+    }
+
+    @JavascriptInterface
+    public String selfCheck() {
+        return act.selfCheckJson();
     }
 
     @JavascriptInterface
@@ -1671,5 +1731,87 @@ class SetupOpener implements Runnable {
     @Override
     public void run() {
         act.backToSetup();
+    }
+}
+
+/** 一键启动：先起协议端，等 6099 起来，再起机器人，等控制台端口起来。 */
+class StartAllTask implements Runnable {
+
+    private final MainActivity act;
+
+    StartAllTask(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void run() {
+        try {
+            if (!act.container().ready()) {
+                act.uiLog("一键启动：还没有容器，先去第 3 步创建");
+                return;
+            }
+            if (!MainActivity.portOpen(6099, 300)) {
+                act.uiLog("① 启动协议端（QQ + NapCat）…");
+                new Thread(new ExtRunner2(act, "napcat-start")).start();
+                for (int i = 0; i < 36; i++) {
+                    Thread.sleep(2500);
+                    if (MainActivity.portOpen(6099, 400)) {
+                        act.uiLog("   协议端就绪（6099）");
+                        break;
+                    }
+                }
+                if (!MainActivity.portOpen(6099, 400)) {
+                    act.uiLog("   协议端没起来：看第 3 步日志；可能是 QQ 包没导入");
+                    return;
+                }
+            } else {
+                act.uiLog("① 协议端已在运行");
+            }
+
+            if (!BotService.running) {
+                act.uiLog("② 启动机器人…");
+                act.startRuntime(false);
+                for (int i = 0; i < 30; i++) {
+                    Thread.sleep(2000);
+                    int p = RuntimeManager.port > 0 ? RuntimeManager.port : 8080;
+                    if (MainActivity.portOpen(p, 400)) {
+                        act.uiLog("   控制台就绪（" + p + "）");
+                        break;
+                    }
+                }
+            } else {
+                act.uiLog("② 机器人已在运行");
+            }
+
+            boolean ok = MainActivity.portOpen(RuntimeManager.port > 0
+                    ? RuntimeManager.port : 8080, 500);
+            act.runOnUiThread(new StartAllDone(act, ok));
+        } catch (Throwable t) {
+            act.uiLog("一键启动出错：" + t);
+        }
+    }
+}
+
+/** 一键启动结束后回到 UI 线程提示。 */
+class StartAllDone implements Runnable {
+
+    private final MainActivity act;
+    private final boolean ok;
+
+    StartAllDone(MainActivity a, boolean ok) {
+        this.act = a;
+        this.ok = ok;
+    }
+
+    @Override
+    public void run() {
+        android.widget.Toast.makeText(act,
+                ok ? "都起来了，去「进入控制台」" : "有东西没起来，点「自检」看看",
+                android.widget.Toast.LENGTH_LONG).show();
+        try {
+            act.web.evaluateJavascript(
+                    "window.refreshAll && window.refreshAll()", null);
+        } catch (Throwable ignored) {
+        }
     }
 }
