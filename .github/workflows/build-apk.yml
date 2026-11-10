@@ -66,37 +66,34 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 注意：我们的 release 标了 prerelease，/releases/latest 会跳过它，
-          # 所以这里取「最近的一个 release」（按发布时间倒序的第一条）。
-          $rels = gh api "repos/${{ github.repository }}/releases?per_page=10" | ConvertFrom-Json
-          if (-not $rels -or $rels.Count -eq 0) {
-            Write-Host "::error::仓库里还没有任何 Release"
+          # 不能只看"最新的一条 release"：新打的 tag 会创建一条空 release，
+          # 里面还没有资产。所以这里找「最近一条同时含这两个资产的 release」。
+          $rels = gh api "repos/${{ github.repository }}/releases?per_page=20" | ConvertFrom-Json
+          $need = @("runtime.zip", "NapCat.Shell.zip")
+          $pick = $null
+          foreach ($r in $rels) {
+            $names = @($r.assets | ForEach-Object { $_.name })
+            if (($need | Where-Object { $names -notcontains $_ }).Count -eq 0) {
+              $pick = $r
+              break
+            }
+          }
+          if (-not $pick) {
+            Write-Host "::error::没有任何 release 同时包含 runtime.zip 和 NapCat.Shell.zip"
             exit 1
           }
-          $tag = $rels[0].tag_name
-          $names = $rels[0].assets | ForEach-Object { $_.name }
-          Write-Host "使用 Release: $tag  资产: $($names -join ', ')"
+          Write-Host "资产来源: $($pick.tag_name)"
 
           $want = @{
             "runtime.zip"      = "apk_src_v2/assets/runtime.zip"
             "NapCat.Shell.zip" = "apk_src_v2/napcat_assets/NapCat.Shell.zip"
           }
-          $have = 0
           foreach ($k in $want.Keys) {
-            if ($names -contains $k) {
-              $dst = $want[$k]
-              New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
-              gh release download $tag --repo ${{ github.repository }} --pattern $k --output $dst --clobber
-              $mb = [math]::Round((Get-Item $dst).Length / 1MB, 1)
-              Write-Host "已下载 $k -> $dst ($mb MB)"
-              $have++
-            } else {
-              Write-Host "::warning::Release $tag 里没有 $k"
-            }
-          }
-          if ($have -lt 2) {
-            Write-Host "::error::缺少 runtime.zip 或 NapCat.Shell.zip，无法构建"
-            exit 1
+            $dst = $want[$k]
+            New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
+            gh release download $($pick.tag_name) --repo ${{ github.repository }} --pattern $k --output $dst --clobber
+            $mb = [math]::Round((Get-Item $dst).Length / 1MB, 1)
+            Write-Host "已下载 $k ($mb MB)"
           }
 
       - name: 注入机器人代码
