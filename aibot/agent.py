@@ -547,14 +547,47 @@ def build_system_prompt(mode="normal"):
     return p
 
 
-def sh(cmd, timeout=60):
+ROOT_FLAG = _HOME_ROOT + "/aibot/root_mode.json"
+
+
+def root_enabled():
+    """控制台「Root」开关的状态（App 写文件，这里读）。"""
     try:
-        p = subprocess.run(["su", "-c", cmd], capture_output=True, text=True, timeout=timeout)
+        with open(ROOT_FLAG, encoding="utf-8") as f:
+            return bool(json.load(f).get("enabled"))
+    except Exception:
+        return False
+
+
+def root_available():
+    """设备上到底有没有可用的 su。"""
+    try:
+        p = subprocess.run(["su", "-c", "id"], capture_output=True, text=True, timeout=6)
+        return "uid=0" in ((p.stdout or "") + (p.stderr or ""))
+    except Exception:
+        return False
+
+
+def sh(cmd, timeout=60):
+    """开关打开且 su 可用时走 root，否则用普通 shell。"""
+    use_root = root_enabled()
+    argv = (["su", "-c", cmd] if use_root else ["sh", "-c", cmd])
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
         out = (p.stdout or "") + (p.stderr or "")
         return out[-8000:] if out else "(no output)"
     except subprocess.TimeoutExpired:
         return "(timeout %ss)" % timeout
     except Exception as e:
+        if use_root:
+            # root 不可用时退回普通 shell，别让工具直接失败
+            try:
+                p = subprocess.run(["sh", "-c", cmd], capture_output=True,
+                                   text=True, timeout=timeout)
+                out = (p.stdout or "") + (p.stderr or "")
+                return (out[-8000:] if out else "(no output)") + "\n[注意] root 不可用，已用普通权限执行"
+            except Exception as e2:
+                return "(error: %s)" % e2
         return "(error: %s)" % e
 
 

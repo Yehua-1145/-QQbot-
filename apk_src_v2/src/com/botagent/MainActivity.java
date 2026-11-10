@@ -156,6 +156,172 @@ public class MainActivity extends Activity {
     }
 
     // ---------- 页面切换 ----------
+    // ---------------- root（可选） ----------------
+
+    static final String[] SU_PATHS = {
+            "/system/bin/su", "/system/xbin/su", "/sbin/su",
+            "/debug_ramdisk/su", "/su/bin/su", "su"
+    };
+
+    private java.io.File rootFlag() {
+        java.io.File d = new java.io.File(getFilesDir(), "aibot");
+        d.mkdirs();
+        return new java.io.File(d, "root_mode.json");
+    }
+
+    boolean rootEnabled() {
+        try {
+            String t = readSmall(rootFlag());
+            return t.contains("\"enabled\":true") || t.contains("\"enabled\": true");
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    void rootSetEnabled(boolean on) {
+        try {
+            java.io.FileWriter w = new java.io.FileWriter(rootFlag());
+            w.write("{\"enabled\":" + (on ? "true" : "false") + "}");
+            w.close();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    static String findSu() {
+        for (String p : SU_PATHS) {
+            try {
+                if (p.equals("su")) {
+                    // 交给 PATH 解析，能跑到就算有
+                    Process t = Runtime.getRuntime().exec(new String[]{"sh", "-c", "command -v su"});
+                    java.io.BufferedReader r = new java.io.BufferedReader(
+                            new java.io.InputStreamReader(t.getInputStream()));
+                    String line = r.readLine();
+                    t.waitFor();
+                    if (line != null && line.trim().length() > 0) {
+                        return line.trim();
+                    }
+                    continue;
+                }
+                java.io.File f = new java.io.File(p);
+                if (f.exists() && f.canExecute()) {
+                    return p;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return "";
+    }
+
+    /** 执行 su -c cmd，返回 "uid=0(root)..." 或错误字符串。timeoutMs 内没结果就算失败。 */
+    static String execSu(String su, String cmd, int timeoutMs) {
+        Process p = null;
+        final StringBuilder out = new StringBuilder();
+        try {
+            p = Runtime.getRuntime().exec(new String[]{su, "-c", cmd});
+            final java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(p.getInputStream()));
+            final java.io.BufferedReader e = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(p.getErrorStream()));
+            final Process fp = p;
+            Thread rd = new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        String l;
+                        while ((l = r.readLine()) != null) {
+                            out.append(l).append('\n');
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            });
+            Thread re = new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        String l;
+                        while ((l = e.readLine()) != null) {
+                            out.append(l).append('\n');
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            });
+            rd.start();
+            re.start();
+            long deadline = System.currentTimeMillis() + timeoutMs;
+            while (System.currentTimeMillis() < deadline) {
+                try {
+                    int code = fp.exitValue();
+                    rd.join(400);
+                    re.join(400);
+                    return out.toString().trim().isEmpty()
+                            ? ("(exit " + code + ")") : out.toString().trim();
+                } catch (IllegalThreadStateException alive) {
+                    try {
+                        Thread.sleep(120);
+                    } catch (InterruptedException ignored) {
+                    }
+                }
+            }
+            try {
+                fp.destroy();
+            } catch (Throwable ignored) {
+            }
+            return out.toString().trim();
+        } catch (Throwable t) {
+            return "ERR " + t;
+        } finally {
+            try {
+                if (p != null) {
+                    p.destroy();
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    static String readSmall(java.io.File f) {
+        try {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            java.io.FileInputStream in = new java.io.FileInputStream(f);
+            byte[] buf = new byte[2048];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                bo.write(buf, 0, n);
+            }
+            in.close();
+            return new String(bo.toByteArray(), "UTF-8");
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /** 自检/申请 root：返回 JSON 字符串给前端。ask=true 时会真的去弹授权框。 */
+    String rootStatusJson(boolean ask) {
+        String su = findSu();
+        boolean has = su.length() > 0;
+        boolean granted = false;
+        String msg = "";
+        if (has) {
+            String out = execSu(su, "id", ask ? 30000 : 6000);
+            granted = out != null && out.contains("uid=0");
+            msg = (out == null ? "" : out.replace("\n", " ").trim());
+            if (msg.length() > 120) {
+                msg = msg.substring(0, 120);
+            }
+        } else {
+            msg = "设备上没有 su（未 root，或用的是隐藏 root）";
+        }
+        StringBuilder b = new StringBuilder();
+        b.append("{\"su_found\":").append(has)
+         .append(",\"granted\":").append(granted)
+         .append(",\"enabled\":").append(rootEnabled())
+         .append(",\"su_path\":\"").append(su.replace("\"", ""))
+         .append("\",\"msg\":\"")
+         .append(msg.replace("\"", "'").replace("\\", "/"))
+         .append("\"}");
+        return b.toString();
+    }
+
     /** 一键启动：协议端（QQ+NapCat）→ 机器人，中间等端口就绪。 */
     void startAll() {
         new Thread(new StartAllTask(this)).start();
@@ -704,6 +870,26 @@ class Bridge {
     @JavascriptInterface
     public void openSetup() {
         act.runOnUiThread(new SetupOpener(act));
+    }
+
+    @JavascriptInterface
+    public String rootStatus() {
+        return act.rootStatusJson(false);
+    }
+
+    @JavascriptInterface
+    public String rootRequest() {
+        return act.rootStatusJson(true);
+    }
+
+    @JavascriptInterface
+    public boolean rootEnabled() {
+        return act.rootEnabled();
+    }
+
+    @JavascriptInterface
+    public void rootSetEnabled(boolean on) {
+        act.rootSetEnabled(on);
     }
 
     @JavascriptInterface
