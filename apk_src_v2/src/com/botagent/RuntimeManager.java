@@ -426,6 +426,11 @@ public class RuntimeManager implements Runnable {
         String home = ctx.getFilesDir().getAbsolutePath();
         pb.environment().put("LD_LIBRARY_PATH", prefix + "/lib");
         pb.environment().put("PYTHONHOME", prefix);
+        // HTTPS 证书：内置运行时自带 CA bundle，但 Python 不会自动找它，
+        // 不设置的话请求 api.deepseek.com 会报 CERTIFICATE_VERIFY_FAILED。
+        pb.environment().put("SSL_CERT_FILE", prefix + "/etc/tls/cert.pem");
+        pb.environment().put("SSL_CERT_DIR", prefix + "/etc/ssl/certs");
+        pb.environment().put("REQUESTS_CA_BUNDLE", prefix + "/etc/tls/cert.pem");
         pb.environment().put("PYTHONPATH", prefix + "/lib/python3.14:"
                 + prefix + "/lib/python3.14/site-packages");
         pb.environment().put("BOTAGENT_HOME_ROOT", home);

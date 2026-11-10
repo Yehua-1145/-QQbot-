@@ -2918,7 +2918,7 @@ def _human_api_error(e):
         friendly = "模型服务端抽风（5xx），过一会儿再试"
     if friendly:
         _mark_api_error(friendly)
-    return "(本鱼卡了一下：%s)" % friendly
+        return "(本鱼卡了一下：%s)" % friendly
     _mark_api_error(t)
     return "(本鱼卡了一下：%s)" % (t[:120] if t else "未知错误")
 
