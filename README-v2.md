@@ -1,11 +1,11 @@
-# Botagent v2（单 APK 版）
+# 手机 Botagent v2（单 APK 版）
 
 > **把闲置手机变成会用手机的 AI 助手。**
 > 不用电脑、不用 root、全程本机。
 
 它不止会聊天 —— 能真的读屏幕、点按钮、滑页面，帮你查电量、开 App、搜东西、定提醒。
 
-**这是实验分支**（`v2-embedded-runtime`）。想要稳定的、能连 QQ 的版本，请用 [main 分支的 v1.1](https://github.com/Yehua-1145/-QQbot-)。
+**这是实验分支**（`v2-embedded-runtime`）。想要稳定的、能连 QQ 的版本，请用 [main 分支的 v1.1](https://github.com/Yehua-1145/phone-botagent)。
 
 > ⚠️ **当前版本（2.0.9）明确不稳定**：整条链路只在一台小米 6 / Android 9 上验证过。
 > 已知问题见文末「已知限制」。适合折腾，不适合当正式服务。
@@ -30,7 +30,7 @@
 
 ### 手机直接装
 
-1. 到 [Releases](https://github.com/Yehua-1145/-QQbot-/releases) 下载
+1. 到 [Releases](https://github.com/Yehua-1145/phone-botagent/releases) 下载
    `Botagent-v2.0-beta.apk`（约 52 MB，内含 Python 运行时 + NapCat）
 2. 手机上点开安装 → 按 4 步向导走
 3. 登录成功后自动进控制台

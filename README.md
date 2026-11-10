@@ -1,11 +1,8 @@
-> **你在 v2 分支。** 这个分支是「单 APK 内置运行时」的实验版，专门的使用说明在
-> **[README-v2.md](README-v2.md)**。想要稳定版请回 [main](https://github.com/Yehua-1145/-QQbot-/tree/main)。
-
 # Botagent
 
-[![Release](https://img.shields.io/badge/release-v1.1-2ea043?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/releases/latest)
-[![Platform](https://img.shields.io/badge/Android-7.0%2B-3DDC84?style=flat-square&logo=android)](https://github.com/Yehua-1145/-QQbot-)
-[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/blob/main/LICENSE)
+[![Release](https://img.shields.io/badge/release-v1.1-2ea043?style=flat-square)](https://github.com/Yehua-1145/phone-botagent/releases/latest)
+[![Platform](https://img.shields.io/badge/Android-7.0%2B-3DDC84?style=flat-square&logo=android)](https://github.com/Yehua-1145/phone-botagent)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/Yehua-1145/phone-botagent/blob/main/LICENSE)
 
 **把 QQ AI 机器人装进一台普通安卓手机。**
 
@@ -22,7 +19,7 @@ QQ 消息 → NapCat（QQ 协议端）→ 你的大模型 → 回复
 | 方式 | 地址 | 说明 |
 |---|---|---|
 | **蓝奏云**（国内推荐） | <https://wwbxc.lanzoub.com/b011mly7ud> | 密码：**byc6** |
-| **GitHub Release** | <https://github.com/Yehua-1145/-QQbot-/releases/latest> | 需要魔法 |
+| **GitHub Release** | <https://github.com/Yehua-1145/phone-botagent/releases/latest> | 需要魔法 |
 
 下载后解压，进 `Windows一键部署` 目录，双击 `BotagentDeploy.exe` 即可。
 
@@ -32,6 +29,21 @@ SHA256  6B14CF1554B9AB77D875C18B292BA5E6BB7E3E02F7B821F1667DF555EA8DE411
 ```
 
 ---
+
+## 两条路，选一条
+
+| | **稳定版 v1.1**（main） | **实验版 v2**（分支 `v2-embedded-runtime`） |
+|---|---|---|
+| 装法 | 电脑一键部署 / 手机直装（Termux） | **只装一个 APK** |
+| 需要 Termux | 要 | **不要**（Python 运行时打进 APK 里） |
+| 安装步骤 | 四步 | 填 QQ 号 + API Key → 点启动 |
+| 体积 | 18 MB | 34 MB |
+| 状态 | ✅ 稳定，已验证 | 🧪 真机能跑，还在打磨 |
+| 适合 | 想稳定用的 | 想尝鲜、不想碰 Termux 的 |
+
+> v2 的代码在分支 **[`v2-embedded-runtime`](https://github.com/Yehua-1145/phone-botagent/tree/v2-embedded-runtime)**，
+> 单 APK 自带 Python 3.14 运行时，手机上一键启动，不需要 Termux、不需要电脑。
+> 已在小米 6（无 root）上验证：装 APK → 填两个空 → 点启动 → 控制台跑在 8080。
 
 ## 30 秒了解它
 
@@ -573,7 +585,7 @@ ui_wait  →  等「互联网」出现，确认进去了
 
 ### 这个项目还不完善
 
-这是一个**个人项目**，能跑通、够自己用，但离「成熟产品」还有距离。下面这些是已知的短板，遇到了不必意外，如果您有更好的建议，欢迎向我提issue！
+先把话说清楚：它是一个**个人项目**，能跑通、够自己用，但离「成熟产品」还有距离。下面这些是已知的短板，遇到了不必意外。
 
 **兼容性**
 
@@ -634,7 +646,7 @@ ui_wait  →  等「互联网」出现，确认进去了
 
 **方式一：GitHub Issue（推荐，方便追踪）**
 
-👉 <https://github.com/Yehua-1145/-QQbot-/issues>
+👉 <https://github.com/Yehua-1145/phone-botagent/issues>
 
 新建 Issue 时请带上：
 
