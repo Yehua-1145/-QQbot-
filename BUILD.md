@@ -236,3 +236,37 @@ adb shell am start -a android.intent.action.VIEW `
 **注意**：`copyAibot` 是覆盖式复制，但如果 App 已经解压过运行时，改完 python
 再装新 APK 时旧文件会被覆盖——想彻底干净就
 `adb shell pm clear com.botagent`。
+
+---
+
+## 签名密钥（重要）
+
+pk_src_v2/debug.keystore **提交在仓库里**（2.6 KB，密码 ndroid）。
+
+为什么要提交：
+
+`
+CI（GitHub Actions）每次都是全新检出。仓库里没有 keystore 时，
+build.ps1 会现场生成一把新的 → 产物签名与历史版本不一致
+  · 装不到已有手机上（INSTALL_FAILED_UPDATE_INCOMPATIBLE）
+  · 每次 CI 之间也互相覆盖不了
+`
+
+所以这把密钥的作用是让 **CI 与本地构建产出同一个签名**。
+指纹（SHA-256）：886674ee71b265062a53175f3d33c3fa3435c65b6e12257776cc45751d16216
+
+验证方式：
+
+`powershell
+apksigner verify --print-certs .\Botagent.apk
+# 期望 SHA-256 digest: a886674e...
+`
+
+底线：
+
+`
+· 密钥公开 = 任何人都能签一个升级包覆盖安装
+· 本项目非商业、不上架商店，接受这个取舍
+· 若将来上架商店或正式发布 → 换新密钥，且绝不能进仓库
+  （改用 CI Secret，或本地签名后手动上传）
+`
