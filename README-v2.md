@@ -181,6 +181,44 @@ Botagent.apk (52.2 MB)
 
 > 2.0.6 及更早属于「跑不起来」的阶段，不单列。v1.x 见 [Releases](https://github.com/Yehua-1145/phone-botagent/releases) 里的 `v1.1`。
 
+## Root 是可选的
+
+**没 root 也能用**，只是权限普通。有 root 能干更多。
+
+设置页有一张「Root（可选）」卡片：
+
+```
+状态    无 root / 有 su，未授权 / 已 root（uid=0）
+授权    开关（打开后命令走 su）
+按钮    检测 / 申请授权   ← 点它会真的弹 Magisk 授权框
+```
+
+判定方式很朴素：依次找 `/system/bin/su`、`/system/xbin/su`、`/sbin/su`、
+`/debug_ramdisk/su`、`/su/bin/su`、`PATH` 里的 `su`，找到后跑一次 `su -c id`，
+输出里出现 `uid=0` 才算真的拿到了。
+
+开关不会让命令直接失败：
+
+```
+开关开 + 有 root   → su -c 执行
+开关开 + 没 root   → 自动退回 sh -c，结果末尾标注「root 不可用，已用普通权限执行」
+开关关             → sh -c 执行
+```
+
+> 之前 `sh()` 是硬编码 `su -c`，没 root 的手机上所有 shell 工具都会报
+> `[Errno 2] No such file or directory: 'su'`。现在这个坑已经填了。
+
+有 root 能做的事（没 root 做不到）：
+
+```
+· 读写 /data/data 下别的 App 的数据
+· 改系统设置（部分 dumpsys/settings 项）
+· 直连 adb 本机端口、重启服务
+· 静默安装 / 卸载
+```
+
+---
+
 ## 已知限制
 
 ```
