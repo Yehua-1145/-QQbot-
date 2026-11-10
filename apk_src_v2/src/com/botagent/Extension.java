@@ -231,7 +231,6 @@ public class Extension {
             + "pgrep -f '/opt/QQ/qq' >/dev/null && { echo 'QQ 已在跑'; exit 0; }\n"
             + "cd /opt/QQ\n"
             + "nohup ./qq --no-sandbox > /tmp/napcat.log 2>&1 &\n"
-            + "nohup sh /tmp/napcat-onebot-fix.sh >/tmp/onebot-fix.log 2>&1 &\n"
             + "echo '== 等二维码（最多 60 秒）=='\n"
             + "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do\n"
             + "  sleep 5\n"
@@ -240,7 +239,7 @@ public class Extension {
             + "echo '== 日志（含二维码 URL / WebUI）=='\n"
             + "grep -aiE 'qrcode|二维码|WebUi|6099|3001|Token' /tmp/napcat.log 2>/dev/null | tail -12 || tail -20 /tmp/napcat.log\n"
             + "echo '== 端口 =='\n"
-            + "(netstat -tln 2>/dev/null || ss -tln 2>/dev/null) | grep -E ':3001|:6099' || echo '端口还没起（多半还没扫码）\n";
+            + "(netstat -tln 2>/dev/null || ss -tln 2>/dev/null) | grep -E ':3001|:6099' || echo '端口还没起（多半还没扫码）'\n";
 
     static final String QQ_MANIFEST = "{\n"
             + "  \"id\": \"qq\",\n"

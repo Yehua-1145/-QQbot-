@@ -2328,6 +2328,87 @@ def _task_loop():
 
 
 
+# ---------------- OneBot ws:3001 自动补齐 ----------------
+# NapCat 首次登录后才生成 onebot11_<uin>.json，默认 websocketServers 是空数组，
+# 不补这一条 3001 永远不会监听 —— 用户会卡在"登录成功但连不上"。
+_ONEBOT_CFG_DIR = (_HOME_ROOT + "/ubuntu/opt/QQ/resources/app/napcat/config")
+_ONEBOT_WS = {
+    "name": "ws", "enable": True, "host": "127.0.0.1", "port": 3001,
+    "messagePostFormat": "array", "reportSelfMessage": False, "token": "",
+    "enableForcePushEvent": True, "debug": False, "heartInterval": 30000,
+}
+
+
+def _onebot_cfg_files():
+    try:
+        return [f for f in os.listdir(_ONEBOT_CFG_DIR)
+                if f.startswith("onebot11_") and f.endswith(".json")]
+    except Exception:
+        return []
+
+
+def _ensure_onebot_ws(verbose=True):
+    """检查并补齐 3001。返回 True 表示这次真的改了（调用方据此重连）。"""
+    changed = False
+    for fn in _onebot_cfg_files():
+        p = os.path.join(_ONEBOT_CFG_DIR, fn)
+        try:
+            with open(p, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            continue
+        net = cfg.get("network")
+        if not isinstance(net, dict):
+            continue
+        servers = net.get("websocketServers")
+        if not isinstance(servers, list):
+            servers = []
+        ok = any(isinstance(x, dict) and int(x.get("port") or 0) == 3001 for x in servers)
+        if ok:
+            continue
+        servers.append(dict(_ONEBOT_WS))
+        net["websocketServers"] = servers
+        cfg["network"] = net
+        try:
+            tmp = p + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, p)
+            changed = True
+            if verbose:
+                _log("[onebot] 已给 %s 补上 ws:3001，重启协议端后生效" % fn)
+        except Exception as e:
+            if verbose:
+                _log("[onebot] 写 %s 失败：%s" % (fn, e))
+    return changed
+
+
+def _onebot_watch():
+    """后台线程：每 5 秒检查一次，首次补齐后退出。"""
+    for _ in range(180):
+        if _ensure_onebot_ws() and _port_open("127.0.0.1", 3001):
+            return
+        time.sleep(5)
+
+
+def _port_open(host, port, timeout=0.4):
+    import socket
+    s = None
+    try:
+        s = socket.socket()
+        s.settimeout(timeout)
+        s.connect((host, port))
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            if s:
+                s.close()
+        except Exception:
+            pass
+
+
 def main():
     other = _take_pidfile("qq_bot")
     if other:
@@ -2343,6 +2424,8 @@ def main():
     threading.Thread(target=_task_loop, daemon=True).start()
     log("task loop started (每 20 秒检查一次自动任务)")
     log("health loop started (night ping at %s)" % NIGHT_PING)
+    # NapCat 登录后自动补 ws:3001（没这条 3001 不会监听）
+    threading.Thread(target=_onebot_watch, daemon=True).start()
     while True:
         try:
             hdr = (["Authorization: Bearer " + NAPCAT_TOKEN] if NAPCAT_TOKEN else None)

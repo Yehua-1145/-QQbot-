@@ -5,7 +5,6 @@ import android.accessibilityservice.GestureDescription;
 import android.graphics.Bitmap;
 import android.graphics.Path;
 import android.graphics.Rect;
-import android.hardware.HardwareBuffer;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Base64;
@@ -513,21 +512,16 @@ public class A11yService extends AccessibilityService {
     }
 
     private String shot() {
-        if (Build.VERSION.SDK_INT < 30) return "{\"ok\":false,\"err\":\"need android 11+\"}";
+        // Android 11+ 才有 takeScreenshot；相关类型全部隔离在 Shot30 里，
+        // 这里只反射调用，避免 Android 9/10 加载无障碍服务时解析不到 API 30 的类而崩溃。
+        if (android.os.Build.VERSION.SDK_INT < 30) {
+            return "{\"ok\":false,\"err\":\"need android 11+\"}";
+        }
         try {
-            ShotCallback cb = new ShotCallback();
-            takeScreenshot(android.view.Display.DEFAULT_DISPLAY, getMainExecutor(), cb);
-            cb.waitFor(6);
-            ScreenshotResult r = cb.result;
-            if (r == null) return "{\"ok\":false,\"err\":\"screenshot failed\"}";
-            HardwareBuffer hb = r.getHardwareBuffer();
-            Bitmap bmp = Bitmap.wrapHardwareBuffer(hb, r.getColorSpace());
-            if (bmp == null) return "{\"ok\":false,\"err\":\"bitmap null\"}";
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            bmp.compress(Bitmap.CompressFormat.PNG, 100, bos);
-            String b64 = Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP);
-            return "{\"ok\":true,\"w\":" + bmp.getWidth() + ",\"h\":" + bmp.getHeight()
-                    + ",\"png\":\"" + b64 + "\"}";
+            Class<?> c = Class.forName("com.botagent.Shot30");
+            java.lang.reflect.Method m = c.getMethod("take",
+                    android.accessibilityservice.AccessibilityService.class);
+            return String.valueOf(m.invoke(null, this));
         } catch (Throwable t) {
             return "{\"ok\":false,\"err\":\"" + esc(String.valueOf(t)) + "\"}";
         }
