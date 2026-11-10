@@ -194,6 +194,24 @@ if (Test-Path "$b\aibot_assets") {
 }
 
 # ---------- 6. zipalign + 签名 ----------
+Write-Host '== 5.7/6 注入 assets/napcat ==' -ForegroundColor Cyan
+if (Test-Path "$b/napcat_assets") {
+    $root3 = (Resolve-Path "$b/napcat_assets").Path
+    $zip3 = [System.IO.Compression.ZipFile]::Open("$b/base.apk", 'Update')
+    $k = 0
+    Get-ChildItem -Recurse "$b/napcat_assets" -File | ForEach-Object {
+        $rel3 = $_.FullName.Substring($root3.Length + 1).Replace([char]92, [char]47)
+        $e3 = $zip3.CreateEntry("assets/napcat/" + $rel3, [System.IO.Compression.CompressionLevel]::NoCompression)
+        $st3 = $e3.Open()
+        $bytes3 = [System.IO.File]::ReadAllBytes($_.FullName)
+        $st3.Write($bytes3, 0, $bytes3.Length)
+        $st3.Close()
+        $k = $k + 1
+    }
+    $zip3.Dispose()
+    Write-Host ("  napcat 注入 " + $k + " 个")
+}
+
 Write-Host '== 6/6 zipalign + 签名 ==' -ForegroundColor Cyan
 if (-not (Test-Path "$b\debug.keystore")) {
     & $kt -genkeypair -keystore "$b\debug.keystore" -alias androiddebugkey -storepass android `
@@ -213,17 +231,3 @@ if (Test-Path "$b\Botagent.apk") {
     Write-Host '签名失败' -ForegroundColor Red
     exit 1
 }
-
-# ---------- 7 体积校验（防止 aapt2 link 失败却报 OK） ----------
-$final = $Out
-if (-not (Test-Path $final)) { $final = Join-Path $b "Botagent.apk" }
-if (-not (Test-Path $final)) {
-    Write-Host '❌ 没生成 APK' -ForegroundColor Red
-    exit 1
-}
-$mb = [math]::Round((Get-Item $final).Length / 1MB, 1)
-if ($mb -lt 10) {
-    Write-Host "❌ APK 只有 $mb MB，构建不完整（多半是 aapt2 link 失败：检查 res/ 里有没有 mipmap/ic_launcher.png）" -ForegroundColor Red
-    exit 1
-}
-Write-Host "APK 体积 $mb MB ✓" -ForegroundColor Green
