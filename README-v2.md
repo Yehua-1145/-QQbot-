@@ -166,6 +166,21 @@ Botagent.apk (52.2 MB)
 
 ---
 
+## 版本历史
+
+只记「用户能感知到的变化」。都可在 [Releases](https://github.com/Yehua-1145/phone-botagent/releases) 下载。
+
+| 版本 | 版本号 | 变化 |
+|---|---|---|
+| **2.0.12** | 117 | 升级免扫码（失败回二维码）· 功能介绍弹窗 · 拍一拍只看 target_id · 修 GET /api/config |
+| 2.0.11 | 116 | 修 6 个致命问题：Android 9 无障碍起不来、SSL 证书缺失导致模型调不通、错误被吞成 None、私聊白名单挡真人、协议端脚本语法错误、控制台暴露 0.0.0.0 · 加一键启动 / 自检 / 3001 自动补 / 二维码本地化 |
+| 2.0.10 | 115 | 首次用 CI 构建（验证 tag → 自动打包 → 自动发布） |
+| 2.0.9 | 114 | 群聊白名单（allowed_groups / safe_groups）· 设置页对齐 v1.1 |
+| 2.0.8 | 113 | 二维码改回 v1.1 方式（URL 现生成大图 + 轮询 + 立即刷新） |
+| 2.0.7 | 112 | NapCat 官方 Linux 半自动安装（cp 进 QQ + loadNapCat.cjs + jq 改入口） |
+
+> 2.0.6 及更早属于「跑不起来」的阶段，不单列。v1.x 见 [Releases](https://github.com/Yehua-1145/phone-botagent/releases) 里的 `v1.1`。
+
 ## 已知限制
 
 ```
