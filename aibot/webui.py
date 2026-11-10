@@ -1609,6 +1609,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(401)
             self.end_headers()
             return
+        if path == "/api/config" and self.command == "GET":
+            # 控制台「接入」卡片读这个。以前没有 GET，请求落到面板 HTML，
+            # 前端 JSON 解析失败 -> 永远显示「接入 读不到」。
+            cfg = _cfg_read() or {}
+            key = str(cfg.get("api_key") or "")
+            hint = (key[:5] + "****" + key[-4:]) if len(key) > 12 else ("已配置" if key else "")
+            self._json({
+                "model": cfg.get("model") or "",
+                "base_url": cfg.get("base_url") or "",
+                "key_set": bool(key and not key.startswith("sk-test")),
+                "key_hint": hint,
+                "max_steps": cfg.get("max_steps") or "",
+                "max_tokens": cfg.get("max_tokens") or "",
+            })
+            return
+
         if path == "/api/config" and self.command == "POST":
             if not self._guard_dangerous():
                 return
