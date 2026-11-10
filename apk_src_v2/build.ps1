@@ -213,3 +213,17 @@ if (Test-Path "$b\Botagent.apk") {
     Write-Host '签名失败' -ForegroundColor Red
     exit 1
 }
+
+# ---------- 7 体积校验（防止 aapt2 link 失败却报 OK） ----------
+$final = $Out
+if (-not (Test-Path $final)) { $final = Join-Path $b "Botagent.apk" }
+if (-not (Test-Path $final)) {
+    Write-Host '❌ 没生成 APK' -ForegroundColor Red
+    exit 1
+}
+$mb = [math]::Round((Get-Item $final).Length / 1MB, 1)
+if ($mb -lt 10) {
+    Write-Host "❌ APK 只有 $mb MB，构建不完整（多半是 aapt2 link 失败：检查 res/ 里有没有 mipmap/ic_launcher.png）" -ForegroundColor Red
+    exit 1
+}
+Write-Host "APK 体积 $mb MB ✓" -ForegroundColor Green
