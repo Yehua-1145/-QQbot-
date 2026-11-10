@@ -1394,7 +1394,15 @@ def on_message(ws, message):
         if _nt in ("notify", "poke") and (_nst == "poke" or _nt == "poke"):
             _puid = data.get("user_id")
             _pgid = data.get("group_id")
-            _SELF = int(_ctx().get("self_id") or 0)
+            _target = int(data.get("target_id") or 0)
+            _SELF = int(_ctx().get("self_id") or 0) or int(BOT_UIN or 0)
+            # 只看「拍的是谁」：群里 A 拍 B 时不要插话，只回应拍到机器人自己的
+            if _SELF and _puid == _SELF:
+                log("poke: 自己拍别人（%s），跳过" % _target)
+                return
+            if _SELF and _target and _target != _SELF:
+                log("poke: %s 拍的是 %s，不是拍我，跳过" % (_puid, _target))
+                return
             if _puid and _puid != _SELF:
                 import threading as _pth
                 import random as _pr
