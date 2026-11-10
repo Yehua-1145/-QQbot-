@@ -45,11 +45,21 @@ jobs:
           Copy-Item (Join-Path $env:RUNNER_TEMP "clt\cmdline-tools\*") $bin -Recurse -Force
           $sdm = Join-Path $bin "bin\sdkmanager.bat"
           Write-Host "sdkmanager: $sdm"
-          cmd /c "echo y| `"$sdm`" --sdk_root=`"$sdk`" --licenses" | Out-Null
-          cmd /c "`"$sdm`" --sdk_root=`"$sdk`" `"platforms;android-34`" `"build-tools;34.0.0`""
+
+          # 关键：许可证要回答很多次 yes，只 echo 一次是不够的
+          $yes = Join-Path $env:RUNNER_TEMP "yes.txt"
+          1..80 | ForEach-Object { "y" } | Set-Content -Path $yes -Encoding ascii
+          cmd /c "`"$sdm`" --sdk_root=`"$sdk`" --licenses < `"$yes`"" | Out-Host
+
+          cmd /c "`"$sdm`" --sdk_root=`"$sdk`" `"platforms;android-34`" `"build-tools;34.0.0`"" | Out-Host
+
+          if (-not (Test-Path (Join-Path $sdk "build-tools\34.0.0"))) {
+            Write-Host "::error::build-tools 34 没装上"
+            exit 1
+          }
           "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "ANDROID_HOME=$sdk"     | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Get-ChildItem "$sdk\build-tools" | Select-Object Name
+          Get-ChildItem (Join-Path $sdk "build-tools") | Select-Object Name
 
       - name: 下载二进制资源（runtime.zip / NapCat.Shell.zip）
         shell: pwsh
