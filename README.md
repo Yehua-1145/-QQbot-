@@ -4,7 +4,7 @@
 [![Platform](https://img.shields.io/badge/Android-7.0%2B-3DDC84?style=flat-square&logo=android)](https://github.com/Yehua-1145/-QQbot-)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/Yehua-1145/-QQbot-/blob/main/LICENSE)
 
-**把 QQ AI 机器人装进一台普通安卓手机。**
+**把 AI 机器人装进一台普通安卓手机。**
 
 不用 root，不用服务器，不用买云主机。电脑插上数据线点一下就能装完，装完手机上还有一个自己的控制台。
 
