@@ -168,7 +168,7 @@ Botagent.apk (52.2 MB)
 
 ## 版本历史
 
-只记「用户能感知到的变化」。都可在 [Releases](https://github.com/Yehua-1145/phone-botagent/releases) 下载。
+只记「你能感受到的变化」。都可在 [Releases](https://github.com/Yehua-1145/phone-botagent/releases) 下载。
 
 | 版本 | 版本号 | 变化 |
 |---|---|---|
