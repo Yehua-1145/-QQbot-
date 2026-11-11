@@ -138,13 +138,15 @@ public class Extension {
             + CN_SOURCES
             + "apt-get update -o Acquire::Retries=2 2>&1 | tail -2\n"
             + "echo '== 装 QQ 需要的运行库 =='\n"
-            + "apt-get install -y --no-install-recommends xvfb libgtk-3-0 libnss3 "
+            + "apt-get install -y --fix-missing -o Acquire::Retries=6 -o Acquire::ForceIPv4=true "
+            + "--no-install-recommends xvfb libgtk-3-0 libnss3 "
             + "libasound2 libxss1 libgbm1 libxkbcommon0 fonts-noto-cjk "
             + "libxcb-image0 libxcb-keysyms1 libxcb-render-util0 2>&1 | tail -4\n"
             + "echo '== 装你提供的包 =='\n"
             + "dpkg -i /tmp/payload.deb 2>&1 | tail -15 || true\n"
             + "echo '== 补依赖 =='\n"
-            + "apt-get install -fy 2>&1 | tail -4\n"
+            + "apt-get install -fy --fix-missing -o Acquire::Retries=6 "
+            + "-o Acquire::ForceIPv4=true 2>&1 | tail -4\n"
             + "echo '== 结果 =='\n"
             + "ls -d /opt/QQ 2>/dev/null && echo QQ_DIR_OK || echo QQ_DIR_MISSING\n";
 
@@ -176,7 +178,8 @@ public class Extension {
             + CN_SOURCES
             + "apt-get update -o Acquire::Retries=2 2>&1 | tail -2\n"
             + "echo '== 基础依赖（xvfb + jq）=='\n"
-            + "apt-get install -y --no-install-recommends xvfb xauth jq curl ca-certificates 2>&1 | tail -3\n"
+            + "apt-get install -y --fix-missing -o Acquire::Retries=6 -o Acquire::ForceIPv4=true "
+            + "--no-install-recommends xvfb xauth jq curl ca-certificates 2>&1 | tail -3 || true\n"
             + "QAPP=/opt/QQ/resources/app\n"
             + "test -d $QAPP || { echo 'QQ_NOT_FOUND 先把 QQ 安装包装进容器'; exit 1; }\n"
             + "echo '== 1/3 放 NapCat =='\n"
@@ -197,7 +200,13 @@ public class Extension {
             + "EOF\n"
             + "echo '== 3/3 改 QQ 入口 =='\n"
             + "if [ ! -f $QAPP/package.napcat-original.json ]; then cp -a $QAPP/package.json $QAPP/package.napcat-original.json; fi\n"
-            + "jq '.main = \"./loadNapCat.cjs\"' $QAPP/package.napcat-original.json > $QAPP/package.json\n"
+            + "if command -v jq >/dev/null 2>&1; then\n"
+            + "  jq '.main = \"./loadNapCat.cjs\"' $QAPP/package.napcat-original.json > $QAPP/package.json\n"
+            + "else\n"
+            + "  # 没 jq 就直接改文本（QQ 的 package.json 是单行 main 字段）\n"
+            + "  sed 's#\"main\": *\"[^\"]*\"#\"main\": \"./loadNapCat.cjs\"#' "
+            + "$QAPP/package.napcat-original.json > $QAPP/package.json\n"
+            + "fi\n"
             + "grep -o '\"main\"[^,]*' $QAPP/package.json | head -1\n"
             + "echo NAPCAT_O\n";
 

@@ -76,7 +76,40 @@ public class Container {
                 if (ui != null) {
                     ui.uiLog("下载 Ubuntu rootfs（约 26 MB）…");
                 }
-                String err = download(DEFAULT_URL, tgz, ui);
+                // 已经放好 rootfs 就跳过下载（离线安装 / 网络被墙时用）
+        long have = tgz.exists() ? tgz.length() : 0;
+        String err = null;
+        if (have > 20L * 1024 * 1024) {
+            ui.uiLog("已找到本地 rootfs（" + (have / 1048576) + " MB），跳过下载");
+        } else {
+            err = download(DEFAULT_URL, tgz, ui);
+            if (err != null) {
+                // 下载失败（常见：VPN 拦了 TLS / 网络被墙）→ 看用户有没有自己放到 /sdcard
+                ui.uiLog("下载失败：" + err + "，尝试用 /sdcard/rootfs.tar.gz");
+                java.io.File alt = new java.io.File("/sdcard/rootfs.tar.gz");
+                if (alt.exists() && alt.length() > 20L * 1024 * 1024) {
+                    try {
+                        java.io.FileInputStream in = new java.io.FileInputStream(alt);
+                        java.io.FileOutputStream out = new java.io.FileOutputStream(tgz);
+                        byte[] buf = new byte[262144];
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            out.write(buf, 0, n);
+                        }
+                        in.close();
+                        out.close();
+                        ui.uiLog("已用 /sdcard/rootfs.tar.gz（"
+                                + (tgz.length() / 1048576) + " MB）");
+                        err = null;
+                    } catch (Throwable t) {
+                        ui.uiLog("复制失败：" + t);
+                    }
+                } else {
+                    ui.uiLog("没有 /sdcard/rootfs.tar.gz。可以自己下载 "
+                            + DEFAULT_URL + " 放到 /sdcard/rootfs.tar.gz 再点一次");
+                }
+            }
+        }
                 if (err != null) {
                     return err;
                 }
@@ -93,7 +126,7 @@ public class Container {
             // DNS
             try {
                 java.io.FileWriter w = new java.io.FileWriter(new File(target, "etc/resolv.conf"));
-                w.write("nameserver 223.5.5.5\nnameserver 8.8.8.8\n");
+                w.write("nameserver 223.5.5.5\nnameserver 119.29.29.29\n");
                 w.close();
             } catch (Exception ignored) {
             }
