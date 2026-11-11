@@ -306,6 +306,80 @@ NAP_LOG = ("/data/data/com.astrbot.astrbot_android/files/usr/var/lib/"
            "proot-distro/installed-rootfs/ubuntu/root/napcat_run.log")
 
 
+def _hot_apply(url, sha256=""):
+    """热更新：下载 zip → 校验 sha → 覆盖 aibot/*.py 与 web/*.html，先备份。"""
+    import hashlib
+    import shutil
+    import time as _t
+    import urllib.request
+    import zipfile
+
+    root = _HOME_ROOT
+    work = os.path.join(root, "cache", "hot")
+    try:
+        os.makedirs(work, exist_ok=True)
+    except Exception:
+        pass
+    zpath = os.path.join(work, "hot.zip")
+
+    # 1) 下载
+    try:
+        u = url
+        if u.startswith("file://"):
+            shutil.copy2(u[7:], zpath)
+        else:
+            req = urllib.request.Request(u, headers={"User-Agent": "botagent-hot"})
+            with urllib.request.urlopen(req, timeout=180) as r, open(zpath, "wb") as f:
+                shutil.copyfileobj(r, f)
+    except Exception as e:
+        return {"ok": False, "error": "下载失败: %s" % e}
+
+    # 2) 校验
+    if sha256:
+        h = hashlib.sha256(open(zpath, "rb").read()).hexdigest()
+        if h.lower() != sha256.strip().lower():
+            return {"ok": False, "error": "sha256 不匹配（实际 %s）" % h[:16]}
+
+    # 3) 解包 + 备份
+    ts = _t.strftime("%Y%m%d-%H%M%S")
+    backup = os.path.join(root, "aibot", "backup-" + ts)
+    try:
+        os.makedirs(backup, exist_ok=True)
+    except Exception:
+        pass
+
+    applied = []
+    try:
+        z = zipfile.ZipFile(zpath)
+    except Exception as e:
+        return {"ok": False, "error": "不是 zip: %s" % e}
+
+    for name in z.namelist():
+        if name.endswith("/"):
+            continue
+        low = name.lower()
+        if "/" not in name and not low.endswith((".py", ".html")):
+            continue
+        # 目标位置
+        if low.endswith(".py") and ("aibot/" in low or "/" not in name):
+            dst = os.path.join(root, "aibot", os.path.basename(name))
+        elif low.endswith(".html"):
+            dst = os.path.join(root, "web", os.path.basename(name))
+        else:
+            continue
+        try:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            if os.path.exists(dst):
+                shutil.copy2(dst, os.path.join(backup, os.path.basename(dst)))
+            with open(dst, "wb") as f:
+                f.write(z.read(name))
+            applied.append(os.path.basename(dst))
+        except Exception as e:
+            return {"ok": False, "error": "写 %s 失败: %s" % (dst, e)}
+
+    return {"ok": True, "applied": applied, "backup": backup, "need_restart": True}
+
+
 def _qr_online():
     """真的在线才算在线：状态文件要新鲜，且协议端 3001 在监听。
     以前只读 qq_state.json，bot 挂了也会显示「已登录」，导致二维码永远出不来。"""
@@ -1625,30 +1699,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(401)
             self.end_headers()
             return
-        if path == "/api/config" and self.command == "POST":
-            if not self._guard_dangerous():
-                return
-            import json as _j
+        if path == "/api/hot" and self.command == "POST":
             n = int(self.headers.get("Content-Length") or 0)
             try:
-                body = _j.loads(self.rfile.read(n).decode("utf-8") or "{}")
+                body = json.loads(self.rfile.read(n).decode("utf-8") or "{}")
             except Exception as e:
                 self._json({"ok": False, "error": "解析失败: %s" % e})
                 return
-            cfg = _cfg_read()
-            for k in ("base_url", "model", "api_key"):
-                v = body.get(k)
-                if isinstance(v, str) and v.strip():
-                    cfg[k] = v.strip()
-            for k in ("max_steps", "max_tokens"):
-                v = body.get(k)
-                if isinstance(v, int) and v > 0:
-                    cfg[k] = v
-            try:
-                _cfg_write(cfg)
-                self._json({"ok": True})
-            except Exception as e:
-                self._json({"ok": False, "error": str(e)})
+            url = str(body.get("url") or "").strip()
+            if not url:
+                self._json({"ok": False, "error": "缺 url"})
+                return
+            self._json(_hot_apply(url, str(body.get("sha256") or "")))
             return
 
         if path == "/api/task_run":

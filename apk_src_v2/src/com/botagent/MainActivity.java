@@ -30,8 +30,6 @@ import java.io.OutputStreamWriter;
  */
 public class MainActivity extends Activity {
 
-    static final String SETUP_URL = "file:///android_asset/setup.html";
-    static final String CONSOLE_URL = "file:///android_asset/console.html";
 
     WebView web;
     android.widget.FrameLayout root;
@@ -86,7 +84,7 @@ public class MainActivity extends Activity {
         root.addView(navBar, navLp);
         setContentView(root);
 
-        web.loadUrl(SETUP_URL);
+        web.loadUrl(pageUrl("setup.html"));
     }
 
     /** 原生底部导航：左「上一步」，中间「下一步」。 */
@@ -295,6 +293,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** 热更新：files/web/console.html 存在就优先用它，否则用 APK 内置的。 */
+    String pageUrl(String name) {
+        try {
+            java.io.File f = new java.io.File(new java.io.File(getFilesDir(), "web"), name);
+            if (f.exists() && f.length() > 512) {
+                return "file://" + f.getAbsolutePath();
+            }
+        } catch (Throwable ignored) {
+        }
+        return "file:///android_asset/" + name;
+    }
+
+    /** 离线装依赖：把 /sdcard/botagent-deps/*.deb 打进容器 /tmp/deps 再 dpkg。 */
+    void offlineDeps() {
+        new Thread(new OfflineDepsTask(this)).start();
+    }
+
     /** 自检/申请 root：返回 JSON 字符串给前端。ask=true 时会真的去弹授权框。 */
     String rootStatusJson(boolean ask) {
         String su = findSu();
@@ -380,20 +395,20 @@ public class MainActivity extends Activity {
         onConsole = true;
         showNav(false);
         // 用自己的控制台界面（不再把 webui 的网页塞进 WebView）
-        web.loadUrl("file:///android_asset/console.html");
+        web.loadUrl(pageUrl("console.html"));
     }
 
     void backToSetup() {
         onConsole = false;
         showNav(true);
-        web.loadUrl(SETUP_URL);
+        web.loadUrl(pageUrl("setup.html"));
     }
 
     void reloadPage() {
         if (onConsole) {
-            web.loadUrl("file:///android_asset/console.html");
+            web.loadUrl(pageUrl("console.html"));
         } else {
-            web.loadUrl(SETUP_URL);
+            web.loadUrl(pageUrl("setup.html"));
         }
     }
 
@@ -870,6 +885,11 @@ class Bridge {
     @JavascriptInterface
     public void openSetup() {
         act.runOnUiThread(new SetupOpener(act));
+    }
+
+    @JavascriptInterface
+    public void offlineDeps() {
+        act.offlineDeps();
     }
 
     @JavascriptInterface
@@ -1998,6 +2018,63 @@ class StartAllDone implements Runnable {
             act.web.evaluateJavascript(
                     "window.refreshAll && window.refreshAll()", null);
         } catch (Throwable ignored) {
+        }
+    }
+}
+
+/** 离线装依赖：/sdcard/botagent-deps → 容器 /tmp/deps → dpkg -i */
+class OfflineDepsTask implements Runnable {
+
+    private final MainActivity act;
+
+    OfflineDepsTask(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void run() {
+        try {
+            java.io.File dir = new java.io.File("/sdcard/botagent-deps");
+            if (!dir.isDirectory()) {
+                act.uiLog("没找到 /sdcard/botagent-deps（先把这个文件夹拷进手机）");
+                return;
+            }
+            java.io.File[] debs = dir.listFiles();
+            int n = 0;
+            if (debs != null) {
+                for (java.io.File f : debs) {
+                    if (f.isFile() && f.getName().endsWith(".deb")) {
+                        n++;
+                    }
+                }
+            }
+            if (n == 0) {
+                act.uiLog("/sdcard/botagent-deps 里没有 .deb");
+                return;
+            }
+            act.uiLog("离线依赖：发现 " + n + " 个 deb，开始传进容器…");
+
+            Container c = act.container();
+            c.run(new String[]{"/bin/sh", "-c", "mkdir -p /tmp/deps"}, 60, null);
+
+            int pushed = 0;
+            for (java.io.File f : debs) {
+                if (!f.isFile() || !f.getName().endsWith(".deb")) {
+                    continue;
+                }
+                c.push(f, "deps/" + f.getName(), act);
+                pushed++;
+                if (pushed % 20 == 0) {
+                    act.uiLog("  已传 " + pushed + "/" + n);
+                }
+            }
+            act.uiLog("  传输完成：" + pushed + " 个");
+
+            act.uiLog("开始 dpkg 安装（离线，不联网）…");
+            c.run(new String[]{"/bin/sh", "/tmp/offline-deps.sh"}, 1800, act);
+            act.uiLog("离线依赖安装结束，看上面结果");
+        } catch (Throwable t) {
+            act.uiLog("离线装依赖出错：" + t);
         }
     }
 }

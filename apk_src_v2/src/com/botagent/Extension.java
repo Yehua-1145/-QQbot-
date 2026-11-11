@@ -104,6 +104,7 @@ public class Extension {
         write("status.sh", QQ_STATUS);
         write("napcat-install.sh", NAPCAT_INSTALL);
         write("napcat-start.sh", NAPCAT_START);
+        write("offline-deps.sh", OFFLINE_DEPS);
         write("napcat-onebot-fix.sh", NAPCAT_ONEBOT_FIX);
         if (!manifest().exists()) {
             write("ext.json", QQ_MANIFEST);
@@ -230,6 +231,21 @@ public class Extension {
             + "  sleep 5\n"
             + "done\n"
             + "echo '[fix] timeout' >> $LOG\n";
+
+    /** 离线装 QQ 依赖：把 /tmp/deps/*.deb 全部 dpkg 掉，完全不联网。
+     *  用于网络被墙 / VPN 拦截 / apt 解析失败的场景。 */
+    static final String OFFLINE_DEPS = "set +e\n"
+            + "cd /tmp/deps 2>/dev/null || { echo 'DEPS_NOT_FOUND 没找到 /tmp/deps'; exit 1; }\n"
+            + "n=$(ls *.deb 2>/dev/null | wc -l)\n"
+            + "echo \"== 离线依赖：$n 个包 ==\"\n"
+            + "export DEBIAN_FRONTEND=noninteractive\n"
+            + "dpkg -i *.deb >/tmp/deps-install.log 2>&1\n"
+            + "dpkg --configure -a >>/tmp/deps-install.log 2>&1\n"
+            + "echo '== 结果 =='\n"
+            + "tail -6 /tmp/deps-install.log\n"
+            + "missing=$(dpkg -l 2>/dev/null | grep -c '^i[^i]')\n"
+            + "echo \"DEPS_UNCONFIGURED=$missing\"\n"
+            + "command -v Xvfb >/dev/null && echo DEPS_OK || echo DEPS_PARTIAL\n";
 
     static final String NAPCAT_START = "set -e\n"
             + "export DISPLAY=:99\n"

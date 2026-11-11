@@ -162,6 +162,7 @@ button.green{background:linear-gradient(135deg,#3ddc97,#12a67d);color:#042420}
     <button class="ghost" id="napstart" style="margin-top:10px">② 启动协议端（QQ + NapCat）</button>
     <button class="ghost" id="extpick" style="margin-top:10px">③ 导入 QQ 安装包（.deb）</button>
     <button class="ghost" id="extinstall">装进容器</button>
+    <button class="ghost" id="offdeps">离线装依赖（/sdcard/botagent-deps）</button>
 
     <button class="ghost" id="ctnshow" style="margin-top:14px">高级：在容器里跑命令</button>
     <div id="ctnbox" style="display:none">
@@ -394,6 +395,13 @@ $("ctnrun").onclick = () => {
   if (!cmd) { toast("先输一条命令"); return; }
   $("rtlog").style.display = "block";
   try{ B.containerExec(cmd); }catch(e){ toast("执行失败"); }
+};
+
+$("offdeps").onclick = function(){
+  $("rtlog").style.display = "block";
+  $("rtlog").textContent = "";
+  toast("把 /sdcard/botagent-deps 里的 deb 装进容器…");
+  try{ B.offlineDeps(); }catch(e){ toast("调用失败"); }
 };
 
 $("startall").onclick = () => {

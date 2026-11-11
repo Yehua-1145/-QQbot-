@@ -247,6 +247,10 @@
         <h3>关于</h3>
         <div class="row"><span>版本</span><span id="s-ver" class="v">—</span></div>
         <button class="ghost" id="btn-feat">它能做什么（功能介绍）</button>
+        <div class="hint" style="margin-top:10px">热更新（只更新机器人代码与界面，不用重装 APK）</div>
+        <input id="hot-url" placeholder="zip 地址或 file:///sdcard/hot.zip">
+        <button class="ghost" id="btn-hot">应用热更新</button>
+        <div class="hint" id="hot-msg"></div>
         <button class="ghost" id="btn-restart-nap" style="margin-top:8px">重启协议端（NapCat）</button>
       </div>
     </div>
@@ -578,6 +582,21 @@ $("root-sw").onclick = function(){
   }
 };
 setTimeout(rootReload, 1200);
+
+$("btn-hot").onclick = async function(){
+  const u = ($("hot-url").value || "").trim();
+  if(!u){ $("hot-msg").textContent = "先填 zip 地址"; return; }
+  $("hot-msg").textContent = "下载并应用…";
+  try{
+    const d = await jpost("/api/hot", {url: u});
+    if(d.ok){
+      $("hot-msg").textContent = "已更新：" + (d.applied || []).join(", ") +
+        "（重启机器人后生效）";
+    } else {
+      $("hot-msg").textContent = "失败：" + (d.error || "");
+    }
+  }catch(e){ $("hot-msg").textContent = "失败：" + e; }
+};
 
 function showFeat(){
   $("feat").classList.add("on");
