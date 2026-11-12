@@ -245,8 +245,21 @@
 
       <div class="card">
         <h3>关于</h3>
-        <div class="row"><span>版本</span><span id="s-ver" class="v">—</span></div>
+        <div class="row"><span>控制台版本</span><span class="v">v1.1</span></div>
+        <div class="row"><span>APK 版本</span><span id="s-ver" class="v">—</span></div>
         <button class="ghost" id="btn-feat">它能做什么（功能介绍）</button>
+        <div class="hint" style="margin-top:14px">版本 / 更新</div>
+        <div class="hint" id="upd-cur" style="margin-top:2px">当前版本：—</div>
+        <button class="ghost" id="upd-btn" style="width:100%;margin-top:4px">检查更新</button>
+        <pre id="upd-body" class="hint"
+             style="display:none;white-space:pre-wrap;max-height:180px;overflow:auto;
+                    background:#0b1a1d;padding:8px;border-radius:8px;margin:6px 0"></pre>
+        <div id="upd-links" style="display:none">
+          <button class="ghost" id="upd-apk">复制 APK 链接</button>
+          <button class="ghost" id="upd-hot">复制热更新包链接</button>
+          <button class="ghost" id="upd-page">打开 Release 页</button>
+        </div>
+        <div class="hint" id="upd-msg" style="margin-top:6px"></div>
         <div class="hint" style="margin-top:10px">热更新（只更新机器人代码与界面，不用重装 APK）</div>
         <input id="hot-url" placeholder="zip 地址或 file:///sdcard/hot.zip">
         <button class="ghost" id="btn-hot">应用热更新</button>
@@ -598,6 +611,49 @@ $("btn-hot").onclick = async function(){
   }catch(e){ $("hot-msg").textContent = "失败：" + e; }
 };
 
+let updData = null;
+
+async function updCheck(force){
+  $("upd-msg").textContent = "查询 GitHub…";
+  try{
+    const r = await fetch(API + "/api/update_check" + (force ? "?force=1" : ""),
+                          {cache: "no-store"});
+    const j = await r.json();
+    updData = j;
+    if (j.current) { $("s-ver").textContent = j.current; }
+    $("upd-cur").textContent = "当前版本：" + (j.current || "未知") +
+                               (j.latest ? "　最新：" + j.latest : "");
+    if (j.error){
+      $("upd-msg").textContent = "查询失败：" + j.error;
+      $("upd-links").style.display = "none";
+      return;
+    }
+    if (j.has_new){
+      $("upd-msg").textContent = "有新版本 " + j.latest + "（点下面的按钮拿链接）";
+      $("upd-body").style.display = "block";
+      $("upd-body").textContent = j.body || "(没有更新说明)";
+      $("upd-links").style.display = "block";
+    } else {
+      $("upd-msg").textContent = "已是最新（" + (j.current || "?") + "）";
+      $("upd-body").style.display = "none";
+      $("upd-links").style.display = "none";
+    }
+  }catch(e){
+    $("upd-msg").textContent = "查询失败：" + e;
+  }
+}
+
+function updCopy(text, what){
+  if (!text){ toast("没有" + what + "链接"); return; }
+  try{
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta);
+    ta.select(); document.execCommand("copy");
+    document.body.removeChild(ta);
+    toast("已复制" + what + "链接");
+  }catch(e){ toast("复制失败，长按手选"); }
+}
+
 function showFeat(){
   $("feat").classList.add("on");
 }
@@ -609,8 +665,21 @@ $("btn-feat").onclick = showFeat;
 try{
   if(!localStorage.getItem("featSeen")){
     setTimeout(showFeat, 900);
+
   }
 }catch(e){}
+// ---- 版本 / 更新 ----
+$("upd-btn").onclick = function(){ updCheck(true); };
+$("upd-apk").onclick = function(){ updCopy(updData && updData.apk_url, "APK"); };
+$("upd-hot").onclick = function(){
+  updCopy(updData && updData.hot_url, "热更新包");
+  if (updData && !updData.hot_url){ toast("这次 release 没挂热更新包，只能下 APK"); }
+};
+$("upd-page").onclick = function(){
+  const u = updData && updData.page_url;
+  if (u){ location.href = u; } else { toast("没有页面地址"); }
+};
+updCheck(false);
 
 function act(action){
   return fetch(API + "/api/control?action=" + encodeURIComponent(action),
@@ -641,9 +710,9 @@ async function loadMoreSettings(){
     const b = await api("/api/backups");
     $("bk-info").textContent = "本地备份：" + ((b.backups || []).length) +
       " 份　版本 " + (b.local || "—");
-    $("s-ver").textContent = b.local || "—";
+    /* s-ver 由 updCheck() 填 APK 版本，这里不覆盖 */
   }catch(e){
-    $("s-ver").textContent = "读不到";
+    /* 读不到备份信息时也不改 s-ver */
   }
 }
 
