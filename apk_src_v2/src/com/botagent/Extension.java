@@ -116,9 +116,11 @@ public class Extension {
     /** Android 11+ 的 QQ 在 proot 里必须关掉 zygote / GPU 子进程，否则起来就崩。 */
     private String qqFlags() {
         if (android.os.Build.VERSION.SDK_INT >= 30) {
-            return "--no-zygote --disable-gpu --disable-gpu-sandbox "
-                    + "--in-process-gpu --disable-dev-shm-usage "
-                    + "--disable-software-rasterizer";
+            // 实测：必须彻底关掉 GPU 进程（Android 11 上 /dev/shm 被 SELinux 拦，
+            // GPU 子进程一启动就 FATAL，导致 NapCat 永远走不到登录）。
+            return "--disable-dev-shm-usage --disable-gpu "
+                    + "--disable-gpu-compositing --disable-software-rasterizer "
+                    + "--in-process-gpu";
         }
         return "";
     }
