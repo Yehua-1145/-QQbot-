@@ -380,6 +380,93 @@ def _hot_apply(url, sha256=""):
     return {"ok": True, "applied": applied, "backup": backup, "need_restart": True}
 
 
+_UPD_CACHE = {"ts": 0, "data": None}
+REPO = "Yehua-1145/phone-botagent"
+
+
+def _ver_key(v):
+    """'2.0.14' -> (2, 0, 14)；非法返回 (0,)"""
+    try:
+        return tuple(int(x) for x in str(v).strip().lstrip("v").split("."))
+    except Exception:
+        return (0,)
+
+
+def _update_check(force=False):
+    """查 GitHub 最新 release。只返回信息，不下载任何东西。"""
+    import time as _t
+    import urllib.request as _ur
+
+    now = _t.time()
+    if not force and _UPD_CACHE["data"] and now - _UPD_CACHE["ts"] < 600:
+        return _UPD_CACHE["data"]
+
+    cur = ""
+    try:
+        with open(_HOME_ROOT + "/aibot/VERSION", "r", encoding="utf-8") as f:
+            cur = f.read().strip()
+    except Exception:
+        pass
+    if not cur:
+        cur = _cfg_read().get("version") or ""
+
+    out = {"ok": False, "current": cur, "latest": "", "has_new": False,
+           "body": "", "apk_url": "", "hot_url": "", "page_url": "",
+           "error": "", "checked_at": int(now)}
+
+    # ① 先读 jsdelivr 上的 version.json（国内可直连，快）
+    try:
+        import json as _json
+        _cdn = ("https://cdn.jsdelivr.net/gh/%s@v2-embedded-runtime/version.json" % REPO)
+        _req = _ur.Request(_cdn, headers={"User-Agent": "botagent-update"})
+        _op = _ur.build_opener(_ur.ProxyHandler({}))
+        with _op.open(_req, timeout=12) as _r:
+            _v = _json.loads(_r.read().decode("utf-8", "replace"))
+        out["ok"] = True
+        out["latest"] = str(_v.get("version") or "").lstrip("v")
+        out["body"] = (_v.get("notes") or "")[:800]
+        out["apk_url"] = _v.get("apk") or ""
+        out["hot_url"] = _v.get("hot") or ""
+        out["page_url"] = _v.get("page") or ""
+        out["has_new"] = bool(_ver_key(out["latest"]) > _ver_key(cur)) if cur else False
+        _UPD_CACHE["ts"] = now
+        _UPD_CACHE["data"] = out
+        return out
+    except Exception as _e0:
+        out["error"] = "jsdelivr: %s" % _e0
+
+    url = "https://api.github.com/repos/%s/releases/latest" % REPO
+    try:
+        req = _ur.Request(url, headers={
+            "User-Agent": "botagent-update",
+            "Accept": "application/vnd.github+json"})
+        op = _ur.build_opener(_ur.ProxyHandler({}))   # 绕过系统代理
+        with op.open(req, timeout=15) as r:
+            j = _json_loads(r.read().decode("utf-8", "replace"))
+        out["ok"] = True
+        out["latest"] = str(j.get("tag_name") or "").lstrip("v")
+        out["body"] = (j.get("body") or "")[:800]
+        out["page_url"] = j.get("html_url") or ""
+        for a in (j.get("assets") or []):
+            nm = (a.get("name") or "").lower()
+            if nm.endswith(".apk"):
+                out["apk_url"] = a.get("browser_download_url") or ""
+            elif "hot" in nm and nm.endswith(".zip"):
+                out["hot_url"] = a.get("browser_download_url") or ""
+        out["has_new"] = _ver_key(out["latest"]) > _ver_key(cur) if cur else False
+    except Exception as e:
+        out["error"] = "%s" % e
+
+    _UPD_CACHE["ts"] = now
+    _UPD_CACHE["data"] = out
+    return out
+
+
+def _json_loads(t):
+    import json as _j
+    return _j.loads(t)
+
+
 def _qq_live():
     """实时判断 QQ 是否在线：3001 在听 + 有 onebot 配置 → 认为已登录。
 
@@ -1439,6 +1526,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             self._html(_remote_html())
             return
+        if path == "/api/update_check":
+            if not self._authorized():
+                self.send_response(401)
+                self.end_headers()
+                return
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            force = (q.get("force") or ["0"])[0] in ("1", "true", "yes")
+            self._json(_update_check(force))
+            return
+
         if path == "/api/qq":
             if not self._authorized():
                 self.send_response(401)

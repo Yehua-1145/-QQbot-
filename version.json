@@ -1,0 +1,9 @@
+{
+  "version": "2.0.14",
+  "code": 119,
+  "notes": "Android 11 全链路修复：root 启动、GPU 参数、快速登录、残留清理、服务自启、界面遮挡、状态实时化、扫码不裂图",
+  "apk": "https://github.com/Yehua-1145/phone-botagent/releases",
+  "hot": "",
+  "page": "https://github.com/Yehua-1145/phone-botagent/releases",
+  "hot_note": "把热更新包的 zip 地址粘到「设置 → 热更新」里即可"
+}
