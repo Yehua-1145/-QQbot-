@@ -989,7 +989,8 @@ class Bridge {
 
     @JavascriptInterface
     public void napcatStart() {
-        new Thread(new ExtRunner2(act, "napcat-start")).start();
+        android.util.Log.i("botagent", "napcatStart -> ExtRunner2(napcat-run)");
+        new Thread(new ExtRunner2(act, "napcat-run", 86400)).start();
     }
 
     @JavascriptInterface
@@ -1820,16 +1821,25 @@ class ExtRunner2 implements Runnable {
     private final MainActivity act;
     private final String script;
 
+    private final int timeoutSec;
+
     ExtRunner2(MainActivity a, String script) {
+        this(a, script, 600);
+    }
+
+    ExtRunner2(MainActivity a, String script, int timeout) {
         this.act = a;
         this.script = script;
+        this.timeoutSec = timeout;
     }
 
     @Override
     public void run() {
         try {
+            android.util.Log.i("botagent", "ExtRunner2 run script=" + script);
             Extension e = act.qqExt();
             e.writeScripts();
+            android.util.Log.i("botagent", "writeScripts done, dir=" + e.dir());
             Container c = act.container();
             if (!c.ready()) {
                 act.uiLog("先建容器");
@@ -1837,7 +1847,7 @@ class ExtRunner2 implements Runnable {
             }
             c.push(new java.io.File(e.dir(), script + ".sh"), "run-" + script + ".sh", null);
             act.uiLog("执行 " + script);
-            c.run(new String[]{"/bin/sh", "/tmp/run-" + script + ".sh"}, 600, act);
+            c.run(new String[]{"/bin/sh", "/tmp/run-" + script + ".sh"}, timeoutSec, act);
             act.uiRefresh();
         } catch (Exception ex) {
             act.uiLog(script + " 失败：" + ex);
@@ -1958,7 +1968,7 @@ class StartAllTask implements Runnable {
             }
             if (!MainActivity.portOpen(6099, 300)) {
                 act.uiLog("① 启动协议端（QQ + NapCat）…");
-                new Thread(new ExtRunner2(act, "napcat-start")).start();
+                new Thread(new ExtRunner2(act, "napcat-run", 86400)).start();
                 for (int i = 0; i < 36; i++) {
                     Thread.sleep(2500);
                     if (MainActivity.portOpen(6099, 400)) {

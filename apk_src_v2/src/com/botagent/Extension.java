@@ -103,12 +103,28 @@ public class Extension {
         write("stop.sh", QQ_STOP);
         write("status.sh", QQ_STATUS);
         write("napcat-install.sh", NAPCAT_INSTALL);
-        write("napcat-start.sh", NAPCAT_START);
+        write("napcat-start.sh", napcatStartScript());
+        write("napcat-run.sh", NAPCAT_RUN.replace("@@QQFLAGS@@", qqFlags()));
         write("offline-deps.sh", OFFLINE_DEPS);
         write("napcat-onebot-fix.sh", NAPCAT_ONEBOT_FIX);
         if (!manifest().exists()) {
             write("ext.json", QQ_MANIFEST);
         }
+    }
+
+    /** Android 11+ 的 QQ 在 proot 里必须关掉 zygote / GPU 子进程，否则起来就崩。 */
+    /** Android 11+ 的 QQ 在 proot 里必须关掉 zygote / GPU 子进程，否则起来就崩。 */
+    private String qqFlags() {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            return "--no-zygote --disable-gpu --disable-gpu-sandbox "
+                    + "--in-process-gpu --disable-dev-shm-usage "
+                    + "--disable-software-rasterizer";
+        }
+        return "";
+    }
+
+    private String napcatStartScript() {
+        return NAPCAT_START.replace("@@QQFLAGS@@", qqFlags());
     }
 
     private void write(String name, String body) {
@@ -247,13 +263,56 @@ public class Extension {
             + "echo \"DEPS_UNCONFIGURED=$missing\"\n"
             + "command -v Xvfb >/dev/null && echo DEPS_OK || echo DEPS_PARTIAL\n";
 
+    /** 常驻版：Xvfb + QQ 独占一个 proot 实例，QQ 不退出实例就不退出。
+     *  Android 11 上 proot 退出会带走子进程，所以必须前台跑。 */
+    static final String NAPCAT_RUN = "set +e\n"
+            + "export DISPLAY=:99\n"
+            + "QAPP=/opt/QQ/resources/app\n"
+            + "test -d $QAPP/napcat || { echo 'NAP_NOT_INSTALLED'; exit 1; }\n"
+            + "mkdir -p /tmp/.X11-unix /tmp/napcat-plugin-uploads\n"
+            + "chmod 1777 /tmp/.X11-unix /dev/shm 2>/dev/null\n"
+            + "chmod 777 /tmp/napcat-plugin-uploads 2>/dev/null\n"
+            + "chmod -R a+rX $QAPP/napcat 2>/dev/null\n"
+            + "[ -e /opt/QQ/node_modules ] || cp -a $QAPP/napcat/node_modules /opt/QQ/node_modules 2>/dev/null\n"
+            + "pkill -9 -x qq 2>/dev/null; pkill -9 -x exe 2>/dev/null\n"
+            + "pkill -9 Xvfb 2>/dev/null\n"
+            + "for p in $(pgrep -f '/opt/QQ' 2>/dev/null); do kill -9 $p 2>/dev/null; done\n"
+            + "sleep 3\n"
+            + "i=0; while (netstat -tln 2>/dev/null || ss -tln 2>/dev/null) | grep -q ':6099' && [ $i -lt 10 ]; do\n"
+            + "  sleep 1; i=$((i+1))\n"
+            + "done\n"
+            + "if (netstat -tln 2>/dev/null || ss -tln 2>/dev/null) | grep -q ':6099'; then\n"
+            + "  echo '6099 仍被占用，可能还有残留进程' | tee -a $LOG\n"
+            + "fi\n"
+            + "pgrep Xvfb >/dev/null || (nohup Xvfb :99 -screen 0 1080x1920x24 >/tmp/xvfb.log 2>&1 &)\n"
+            + "sleep 4\n"
+            + "cd /opt/QQ\n"
+            + "LOG=/tmp/napcat-run.log\n"
+            + "rm -f $LOG; touch $LOG; chmod 666 $LOG\n"
+            + "echo '== runner v2 ==' >> $LOG\n"
+            + "echo '== QQ 前台运行（proot 常驻）==' >> $LOG\n"
+            + "DISPLAY=:99 ./qq --no-sandbox @@QQFLAGS@@ >> $LOG 2>&1\n"
+            + "echo '== QQ 已退出 ==' >> $LOG\n";
+
     static final String NAPCAT_START = "set -e\n"
             + "export DISPLAY=:99\n"
             + "QAPP=/opt/QQ/resources/app\n"
             + "test -d $QAPP/napcat || { echo 'NAPCAT_NOT_INSTALLED 先点安装 NapCat'; exit 1; }\n"
             + "grep -q loadNapCat $QAPP/package.json || echo 'WARN 入口可能没改'\n"
             + "pgrep Xvfb >/dev/null || (nohup Xvfb :99 -screen 0 1080x1920x24 >/tmp/xvfb.log 2>&1 & sleep 3)\n"
-            + "pgrep -f '/opt/QQ/qq' >/dev/null && { echo 'QQ 已在跑'; exit 0; }\n"
+            + "if pgrep -f '/opt/QQ/qq' >/dev/null; then\n"
+            + "  if (netstat -tln 2>/dev/null || ss -tln 2>/dev/null) | grep -q ':6099'; then\n"
+            + "    echo 'QQ 已在跑（6099 正常）'; exit 0\n"
+            + "  else\n"
+            + "    echo '发现残留 QQ 但 6099 不通，重启一下'\n"
+            + "    pkill -9 -f '/opt/QQ/qq' 2>/dev/null; pkill -9 Xvfb 2>/dev/null; sleep 2\n"
+            + "  fi\n"
+            + "fi\n"
+            + "chmod -R a+rX /opt/QQ/resources/app/napcat 2>/dev/null; "
+            + "chmod a+rX /opt/QQ/lib*.so /opt/QQ/*.so* 2>/dev/null; "
+            + "chmod 1777 /dev/shm 2>/dev/null; "
+            + "mkdir -p /tmp/napcat-plugin-uploads && chmod 777 /tmp/napcat-plugin-uploads; "
+            + "mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix\n"
             + "cd /opt/QQ\n"
             + "UIN=$(ls $QAPP/napcat/config/onebot11_*.json 2>/dev/null | "
             + "sed -n 's/.*onebot11_\\([0-9][0-9]*\\)\\.json/\\1/p' | head -1)\n"
@@ -264,7 +323,7 @@ public class Extension {
             + "else\n"
             + "  echo \"[启动] 没有历史账号，用二维码登录\"\n"
             + "fi\n"
-            + "nohup ./qq --no-sandbox > /tmp/napcat.log 2>&1 &\n"
+            + "nohup ./qq --no-sandbox @@QQFLAGS@@ > /tmp/napcat.log 2>&1 &\n"
             + "echo '== 等登录结果（最多 60 秒）=='\n"
             + "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do\n"
             + "  sleep 5\n"

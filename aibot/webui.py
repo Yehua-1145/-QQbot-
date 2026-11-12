@@ -480,7 +480,8 @@ _LAST_QR_URL = [""]
 
 
 # NapCat 自己的日志（qq_bot.log 一直在写，不能混进来）
-NAP_LOGS = [
+NAP_LOGS = [_HOME_ROOT + "/ubuntu/tmp/napcat-run.log",
+    
     _HOME_ROOT + "/ubuntu/tmp/napcat.log",
     _HOME_ROOT + "/ubuntu/tmp/nap.log",
     _HOME_ROOT + "/qq-nap.log",
