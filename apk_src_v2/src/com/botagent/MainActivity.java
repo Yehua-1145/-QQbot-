@@ -65,6 +65,14 @@ public class MainActivity extends Activity {
         web.setBackgroundColor(0xFF0D1117);
         web.setWebViewClient(new PageClient(this));
         web.addJavascriptInterface(new Bridge(this), "Android");
+        // onCreate 里自启服务
+        try {
+            String t = readSmall(configFile());
+            if (t.contains("\"api_key\"")) {
+                startServices();
+            }
+        } catch (Throwable ignored) {
+        }
         getWindow().setBackgroundDrawable(
                 new android.graphics.drawable.ColorDrawable(0xFF08181b));
 
@@ -413,9 +421,19 @@ public class MainActivity extends Activity {
     }
 
     void startServices() {
-        new Thread(new RootTask(
-                "sh /data/local/tmp/start_webui.sh; sleep 5; sh /data/local/tmp/start_bot.sh")).start();
-        new Handler(Looper.getMainLooper()).postDelayed(new DelayReload(this), 11000);
+        // 直接用 App 自己的前台服务（内置运行时），不再依赖 /data/local/tmp 的老脚本
+        try {
+            android.content.Intent i = new android.content.Intent(this, BotService.class);
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                startForegroundService(i);
+            } else {
+                startService(i);
+            }
+            android.util.Log.i("botagent", "startServices -> BotService");
+        } catch (Throwable t) {
+            uiLog("启动服务失败：" + t);
+        }
+        new Handler(Looper.getMainLooper()).postDelayed(new DelayReload(this), 6000);
     }
 
     // ---------- 配置读写 ----------
@@ -989,8 +1007,13 @@ class Bridge {
 
     @JavascriptInterface
     public void napcatStart() {
-        android.util.Log.i("botagent", "napcatStart -> ExtRunner2(napcat-run)");
-        new Thread(new ExtRunner2(act, "napcat-run", 86400)).start();
+        boolean root = act.rootEnabled() && act.findSu() != null;
+        android.util.Log.i("botagent", "napcatStart root=" + root);
+        if (root) {
+            new Thread(new RootNapcatTask(act)).start();
+        } else {
+            new Thread(new ExtRunner2(act, "napcat-run", 86400)).start();
+        }
     }
 
     @JavascriptInterface
@@ -2086,5 +2109,70 @@ class OfflineDepsTask implements Runnable {
         } catch (Throwable t) {
             act.uiLog("离线装依赖出错：" + t);
         }
+    }
+}
+
+/** 用 su 在宿主机侧起 proot 跑 NapCat：Android 11 上只有 root 身份下
+ *  Electron 才不会被 SIGTRAP 打死（app uid 下必崩）。 */
+class RootNapcatTask implements Runnable {
+
+    private final MainActivity act;
+
+    RootNapcatTask(MainActivity a) {
+        this.act = a;
+    }
+
+    @Override
+    public void run() {
+        try {
+            String su = act.findSu();
+            if (su == null) {
+                act.uiLog("没有 su，回退到普通方式");
+                new Thread(new ExtRunner2(act, "napcat-run", 86400)).start();
+                return;
+            }
+            Extension e = act.qqExt();
+            e.writeScripts();
+            act.container().push(new java.io.File(e.dir(), "napcat-run.sh"),
+                    "run-napcat-run.sh", null);
+
+            String files = act.getFilesDir().getAbsolutePath();
+            String rt = files + "/rt";
+            String cmd = "pkill -9 -x qq; pkill -9 -x exe; pkill -9 Xvfb; "
+                    + "pkill -9 -f /opt/QQ; sleep 3; mkdir -p " + files + "/ubuntu/dev/shm"
+                    + " /tmp/.X11-unix; chmod 1777 " + files + "/ubuntu/dev/shm"
+                    + " /tmp/.X11-unix 2>/dev/null; cd " + files
+                    + " && PROOT_TMP_DIR=" + act.getCacheDir().getAbsolutePath()
+                    + " PROOT_LOADER=" + rt + "/usr/libexec/proot/loader"
+                    + " PROOT_NO_SECCOMP=1"
+                    + " LD_LIBRARY_PATH=" + rt + "/usr/lib"
+                    + " " + rt + "/usr/bin/proot --link2symlink"
+                    + " -r " + files + "/ubuntu -w / -0"
+                    + " -b /dev -b /proc -b /sys"
+                    + " -b " + files + "/ubuntu/dev/shm:/dev/shm"
+                    + " /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/root"
+                    + " /bin/sh /tmp/run-napcat-run.sh";
+
+            String shell = su + " -c " + q(cmd);
+            android.util.Log.i("botagent", "root napcat start");
+            act.uiLog("以 root 身份启动协议端…");
+
+            Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", shell});
+            java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(p.getInputStream()));
+            String line;
+            while ((line = r.readLine()) != null) {
+                act.uiLog(line);
+                android.util.Log.i("botagent", "[nap] " + line);
+            }
+            p.waitFor();
+            act.uiLog("协议端已退出");
+        } catch (Throwable t) {
+            act.uiLog("root 启动失败：" + t);
+        }
+    }
+
+    private static String q(String s) {
+        return "'" + s.replace("'", "'\\''") + "'";
     }
 }
