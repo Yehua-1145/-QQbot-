@@ -40,6 +40,7 @@ SHA256  6B14CF1554B9AB77D875C18B292BA5E6BB7E3E02F7B821F1667DF555EA8DE411
 | 体积 | 18 MB | 34 MB |
 | 状态 | ✅ 稳定，已验证 | 🧪 真机能跑，还在打磨 |
 | 适合 | 想稳定用的 | 想尝鲜、手机独立部署 |
+（手机有root则可以走系统级回复，目前这个功能测试完成，但没有上线的计划，如果需要请找AI许愿）
 
 
 > v2 的代码在分支 **[`v2-embedded-runtime`](https://github.com/Yehua-1145/-QQbot-/tree/v2-embedded-runtime)**，
