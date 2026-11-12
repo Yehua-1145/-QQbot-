@@ -410,30 +410,43 @@ def _update_check(force=False):
     if not cur:
         cur = _cfg_read().get("version") or ""
 
+    _rel = "https://github.com/%s/releases" % REPO
     out = {"ok": False, "current": cur, "latest": "", "has_new": False,
-           "body": "", "apk_url": "", "hot_url": "", "page_url": "",
-           "error": "", "checked_at": int(now)}
+           "body": "", "apk_url": _rel, "hot_url": "", "page_url": _rel,
+           "error": "", "checked_at": int(now),
+           "sources": []}
 
-    # ① 先读 jsdelivr 上的 version.json（国内可直连，快）
-    try:
-        import json as _json
-        _cdn = ("https://cdn.jsdelivr.net/gh/%s@v2-embedded-runtime/version.json" % REPO)
-        _req = _ur.Request(_cdn, headers={"User-Agent": "botagent-update"})
-        _op = _ur.build_opener(_ur.ProxyHandler({}))
-        with _op.open(_req, timeout=12) as _r:
-            _v = _json.loads(_r.read().decode("utf-8", "replace"))
-        out["ok"] = True
-        out["latest"] = str(_v.get("version") or "").lstrip("v")
-        out["body"] = (_v.get("notes") or "")[:800]
-        out["apk_url"] = _v.get("apk") or ""
-        out["hot_url"] = _v.get("hot") or ""
-        out["page_url"] = _v.get("page") or ""
-        out["has_new"] = bool(_ver_key(out["latest"]) > _ver_key(cur)) if cur else False
-        _UPD_CACHE["ts"] = now
-        _UPD_CACHE["data"] = out
-        return out
-    except Exception as _e0:
-        out["error"] = "jsdelivr: %s" % _e0
+    # ① 多源依次尝试（国内实测 ghproxy 可用，jsdelivr 常被墙）
+    import json as _json
+    _raw = ("https://raw.githubusercontent.com/%s/v2-embedded-runtime/version.json"
+            % REPO)
+    _sources = [
+        ("ghproxy", "https://ghproxy.net/" + _raw),
+        ("jsdelivr", "https://cdn.jsdelivr.net/gh/%s@v2-embedded-runtime/version.json" % REPO),
+    ]
+    for _name, _cdn in _sources:
+        try:
+            _req = _ur.Request(_cdn, headers={"User-Agent": "botagent-update"})
+            _op = _ur.build_opener(_ur.ProxyHandler({}))
+            with _op.open(_req, timeout=10) as _r:
+                _v = _json.loads(_r.read().decode("utf-8", "replace"))
+            out["ok"] = True
+            out["sources"].append(_name)
+            out["latest"] = str(_v.get("version") or "").lstrip("v")
+            out["body"] = (_v.get("notes") or "")[:800]
+            if _v.get("apk"):
+                out["apk_url"] = _v["apk"]
+            if _v.get("hot"):
+                out["hot_url"] = _v["hot"]
+            if _v.get("page"):
+                out["page_url"] = _v["page"]
+            out["has_new"] = bool(_ver_key(out["latest"]) > _ver_key(cur)) if cur else False
+            out["error"] = ""
+            _UPD_CACHE["ts"] = now
+            _UPD_CACHE["data"] = out
+            return out
+        except Exception as _e0:
+            out["error"] = "%s: %s" % (_name, _e0)
 
     url = "https://api.github.com/repos/%s/releases/latest" % REPO
     try:
@@ -1544,13 +1557,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             import json as _json
             out = {"online": None, "ts": 0, "bot": 0, "proot": 0,
                    "ports": [], "mode": "", "qr_mtime": 0, "qr_url": "",
-                "nap_state": "unknown", "nap_phase": "", "uin": ""}
+                "nap_state": "unknown", "nap_phase": "", "uin": "",
+                   "drops": 0, "last_drop": None}
             try:
                 with open(_HOME_ROOT + "/aibot/qq_state.json",
                           "r", encoding="utf-8") as f:
                     st = _json.load(f)
                 out["online"] = st.get("online")
                 out["ts"] = st.get("ts", 0)
+                out["drops"] = int(st.get("drops") or 0)
+                out["last_drop"] = st.get("last_drop") or None
             except Exception:
                 pass
             _live = _qq_live()

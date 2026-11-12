@@ -472,7 +472,10 @@ async function loadStatus(){
       rowHtml("协议端", q.proot ? "已连接" : "未连接", q.proot ? "ok" : "bad") +
       rowHtml("账号", q.uin || "—") +
       rowHtml("端口", (q.ports && q.ports.length) ? q.ports.join(" / ") : "—") +
-      rowHtml("模式", q.mode || "普通");
+      rowHtml("模式", q.mode || "普通") +
+      rowHtml("掉线", q.drops ? (q.drops + " 次"
+             + (q.last_drop && q.last_drop.code ? "（码 " + q.last_drop.code + "）" : ""))
+             : "0 次", q.drops > 5 ? "warn" : "");
   }catch(e){
     $("st-run").innerHTML = rowHtml("服务", "读不到（没启动）", "bad");
   }

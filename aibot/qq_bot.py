@@ -2000,13 +2000,21 @@ def on_error(ws, error):
 
 def on_close(ws, code, msg):
     # 记下关闭码/原因：被 NapCat 踢、QQ 掉线、端口关了，能区分开
-    log("ws closed code=%s reason=%s" % (code, str(msg)[:120]))
+    global _drops, _last_drop
+    _drops += 1
+    _last_drop = {"ts": int(time.time()), "code": code, "msg": str(msg)[:100]}
+    log("ws closed code=%s reason=%s (累计掉线 %d 次)"
+        % (code, str(msg)[:120], _drops))
 
 
 def on_open(ws):
     global _WS
     _WS = ws
     _ctx()["ws"] = ws
+    try:
+        _backoff_reset()
+    except Exception:
+        pass
     log("connected to NapCat")
 
 
@@ -2083,7 +2091,8 @@ def _health_loop():
         try:
             with open(AIBOT_DIR + "/qq_state.json", "w", encoding="utf-8") as _f:
                 json.dump({"ts": int(time.time()), "online": online,
-                           "napcat_ok": bool(ok)}, _f)
+                           "napcat_ok": bool(ok),
+                           "drops": _drops, "last_drop": _last_drop}, _f)
         except Exception:
             pass
 
@@ -2457,12 +2466,44 @@ def _port_open(host, port, timeout=0.4):
             pass
 
 
+# ===== 重连退避：别用固定 5 秒狂刷，容易被腾讯判异常 =====
+_drops = 0                # 本次运行累计掉线次数
+_last_drop = None         # 最近一次掉线的关闭码
+_BACKOFF = [5, 15, 30, 60, 120, 300]
+_backoff_i = 0
+_backoff_next = _BACKOFF[0]
+_backoff_since = 0.0      # 这一次断线开始的时间
+_last_online = 0.0        # 上次确认在线的时间
+
+
+def _backoff_reset():
+    global _backoff_i, _backoff_next, _backoff_since
+    _backoff_i = 0
+    _backoff_next = _BACKOFF[0]
+    _backoff_since = 0.0
+
+
+def _backoff_bump():
+    """断线一次，退避时间加长一档，返回本档秒数。"""
+    global _backoff_i, _backoff_next, _backoff_since
+    if not _backoff_since:
+        _backoff_since = time.time()
+    _backoff_next = _BACKOFF[min(_backoff_i, len(_BACKOFF) - 1)]
+    _backoff_i += 1
+    return _backoff_next
+
+
+def _down_seconds():
+    return (time.time() - _backoff_since) if _backoff_since else 0
+
+
 def main():
     other = _take_pidfile("qq_bot")
     if other:
         log("another qq_bot already running (pid %d), exit" % other)
         return
     log("=== PhoneAgent QQ bot starting ===")
+    log("proto backend: %s" % (_BOT_CFG.get("proto_backend") or "napcat"))
     log("napcat ws: %s%s" % (NAPCAT_WS, "  (token set)" if NAPCAT_TOKEN else ""))
     for i in range(max(1, WORKERS)):
         threading.Thread(target=_worker, daemon=True).start()
@@ -2483,8 +2524,14 @@ def main():
             ws.run_forever(ping_interval=None)
         except Exception as e:
             log("exception: %s" % e)
-        log("reconnect in 5s...")
-        time.sleep(5)
+        wait = _backoff_bump()
+        down = _down_seconds()
+        log("reconnect in %ds... (已断 %ds，第 %d 次)"
+            % (wait, int(down), _backoff_i))
+        if int(down) >= 300:
+            log("已经断了 %d 分钟。可能被顶号或在风控，"
+                "建议检查其它设备是否登录同一账号" % int(down // 60))
+        time.sleep(wait)
 
 
 if __name__ == "__main__":
