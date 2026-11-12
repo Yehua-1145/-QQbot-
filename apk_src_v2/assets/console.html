@@ -789,24 +789,32 @@ async function qrTick(force){
       clearInterval(qrTimer);
       return;
     }
-    if (!j.url){
-      st.textContent = "等 NapCat 出码…";
+    // 用 fetch 取图再转 dataURL：WebView 直接给 <img> 挂 http 地址容易裂图
+    let ok = false;
+    try {
+      const resp = await fetch(API + "/api/qr.png?t=" + Date.now(), {cache: "no-store"});
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const dataUrl = await new Promise(function (res, rej) {
+          const fr = new FileReader();
+          fr.onload = function () { res(fr.result); };
+          fr.onerror = rej;
+          fr.readAsDataURL(blob);
+        });
+        $("qrimg").src = dataUrl;
+        $("qrimg").style.display = "block";
+        if ($("qrph")) { $("qrph").style.display = "none"; }
+        ok = true;
+      }
+    } catch (e0) {
+      ok = false;
+    }
+    if (!ok) {
+      $("qrimg").style.display = "none";
+      if ($("qrph")) { $("qrph").style.display = "flex"; }
+      st.textContent = j.url ? "取图失败，稍后再试" : "等 NapCat 出码…";
       return;
     }
-    // 不管 url 有没有，都试一下图片；404 就显示占位而不是裂图
-    const src = API + "/api/qr.png?t=" + Date.now();
-    const probe = new Image();
-    probe.onload = function () {
-      $("qrimg").style.display = "block";
-      $("qrph").style.display = "none";
-      $("qrimg").src = src;
-      qrLast = j.url || String(Date.now());
-    };
-    probe.onerror = function () {
-      $("qrimg").style.display = "none";
-      $("qrph").style.display = "flex";
-    };
-    probe.src = src;
     const age = j.age >= 0 ? j.age : 0;
     st.textContent = age < 90 ? ("有效（" + age + " 秒前生成）")
                               : ("可能过期（" + age + " 秒），点「立即刷新」");
@@ -814,7 +822,6 @@ async function qrTick(force){
     $("qrstat").textContent = "读不到二维码（服务没起？）";
   }
 }
-
 function openQr(force){
   $("sheet").classList.add("on");
   qrTick(force);

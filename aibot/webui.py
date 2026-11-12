@@ -380,6 +380,40 @@ def _hot_apply(url, sha256=""):
     return {"ok": True, "applied": applied, "backup": backup, "need_restart": True}
 
 
+def _qq_live():
+    """实时判断 QQ 是否在线：3001 在听 + 有 onebot 配置 → 认为已登录。
+
+    不再依赖 qq_bot 落盘的 qq_state.json（那个文件可能很久没更新）。
+    """
+    out = {"online": None, "uin": "", "ws": False}
+    # 1) 3001 端口
+    try:
+        import socket
+        sk = socket.socket()
+        sk.settimeout(0.4)
+        sk.connect(("127.0.0.1", 3001))
+        sk.close()
+        out["ws"] = True
+    except Exception:
+        out["ws"] = False
+    # 2) onebot 配置里的 uin
+    try:
+        import glob
+        pat = _HOME_ROOT + "/ubuntu/opt/QQ/resources/app/napcat/config/onebot11_*.json"
+        fs = sorted(glob.glob(pat))
+        if fs:
+            m = re.search(r"onebot11_(\d+)\.json", fs[-1])
+            if m:
+                out["uin"] = m.group(1)
+    except Exception:
+        pass
+    if out["ws"] and out["uin"]:
+        out["online"] = True
+    elif out["ws"]:
+        out["online"] = True
+    return out
+
+
 def _qr_online():
     """真的在线才算在线：状态文件要新鲜，且协议端 3001 在监听。
     以前只读 qq_state.json，bot 挂了也会显示「已登录」，导致二维码永远出不来。"""
@@ -1422,10 +1456,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 out["ts"] = st.get("ts", 0)
             except Exception:
                 pass
+            _live = _qq_live()
+            if _live["online"] is not None:
+                out["online"] = _live["online"]
+            if _live["uin"]:
+                out["uin"] = _live["uin"]
+            if _live["online"] is not None:
+                out["nap_state"] = "online" if _live["online"] else "offline"
             _st = _fast_status()
             out["ports"] = _st["ports"]
+            # 协议端是否在跑：6099（NapCat WebUI）或 3001（OneBot）在听就算
+            try:
+                _ps = _st.get("ports") or []
+                out["proot"] = 1 if ("6099" in _ps or "3001" in _ps) else 0
+            except Exception:
+                out["proot"] = 0
             out["bot"] = _st["bot"]
-            out["proot"] = _st["proot"]
+            # 保留上面按端口算出来的 proot，_fast_status 的那个经常是 0
+            if not out.get("proot"):
+                out["proot"] = _st.get("proot") or 0
             try:
                 with open(MODE_FILE, "r", encoding="utf-8") as f:
                     out["mode"] = f.read().strip()
@@ -1458,14 +1507,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     pass
                 try:
                     _nap = _napcat_status()
-                    out["nap_state"] = _nap["state"]
-                    out["nap_phase"] = _nap["phase"]
+                    _ns = _nap.get("state") or "unknown"
+                    if _ns == "unknown" and out.get("online"):
+                        _ns = "online"
+                    out["nap_state"] = _ns
+                    out["nap_phase"] = _nap.get("phase") or ""
                     if _nap["uin"]:
                         out["uin"] = _nap["uin"]
                 except Exception:
-                    out["nap_state"] = "unknown"
+                    # 拿不到 NapCat WebUI token 时不要报 unknown：
+                    # 只要 3001 在听并且有 onebot 配置，就是已登录
+                    out["nap_state"] = "online" if out.get("online") else "unknown"
                     out["nap_phase"] = ""
-                out["qr_mtime"] = int(_os.path.getmtime(_qr_path()))
+                try:
+                    out["qr_mtime"] = int(_os.path.getmtime(_qr_path()))
+                except Exception:
+                    out["qr_mtime"] = 0
             except Exception:
                 pass
             # 从 napcat 日志里捞最新的二维码解码 URL（PNG 没生成时也能用）
