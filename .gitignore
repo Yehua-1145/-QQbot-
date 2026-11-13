@@ -26,3 +26,8 @@ aux_phone/scripts/run_qq_root_mi6.sh
 # ==== 本地详细文档（含成人图源细节，不进公开仓库）====
 README.local.md
 docs/*.local.md
+
+# ===== 系统级通道（个人使用，不公开）=====
+aibot/qq_system.py
+apk_src_v2/src/com/botagent/QqNotifyService.java
+private/
